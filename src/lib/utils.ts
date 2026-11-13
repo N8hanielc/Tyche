@@ -214,6 +214,8 @@ export function statusLabel(c: Challenge, now = Date.now()) {
 }
 
 export const SEED_ME = "u_nate";
+/** Sample "crowd" accounts in the offline demo (ids c1…c16). */
+export const isCrowd = (id: ID) => /^c\d+$/.test(id);
 export function myNotifications(db: DB) {
   return db.notifications.filter((n) => (n.to ?? SEED_ME) === db.meId);
 }

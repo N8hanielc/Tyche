@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useStore } from "@/lib/store";
 import { useNav } from "@/lib/nav";
-import { cx, userRecord } from "@/lib/utils";
+import { cx, isCrowd, userRecord } from "@/lib/utils";
 import { Avatar, Segmented, TopBar } from "@/components/ui";
 
 export function LeaderboardScreen() {
@@ -12,7 +12,7 @@ export function LeaderboardScreen() {
   const [scope, setScope] = useState<"friends" | "global">("friends");
   const circle = new Set([db.meId, ...db.groups.flatMap((g) => g.memberIds)]);
   const rows = Object.values(db.users)
-    .filter((u) => (scope === "friends" ? circle.has(u.id) : !u.id.startsWith("c") || u.baseWins > 0))
+    .filter((u) => (scope === "friends" ? circle.has(u.id) : !isCrowd(u.id) || u.baseWins > 0))
     .map((u) => ({ u, r: userRecord(db, u.id) }))
     .sort((a, b) => b.r.wins - a.r.wins || b.r.pct - a.r.pct);
   const podium = rows.slice(0, 3);

@@ -6,7 +6,9 @@ import { AuthError, DEMO, useAuth } from "@/lib/auth";
 import { useStore } from "@/lib/store";
 import { useNav } from "@/lib/nav";
 import { readImage } from "@/lib/media";
-import { cx } from "@/lib/utils";
+import { cx, isCrowd } from "@/lib/utils";
+import type { User } from "@/lib/types";
+import { supabase } from "@/lib/supabase";
 import { Avatar, BottomSheet, Button, Logo } from "@/components/ui";
 
 type View = "welcome" | "signin" | "signup";
@@ -193,7 +195,7 @@ function SignIn({ go }: { go: (v: View) => void }) {
         {busy ? <Spinner /> : "Sign in"}
       </Button>
 
-      <button
+      {!auth.service.remote && <button
         type="button"
         onClick={() => {
           setEmail(DEMO.email);
@@ -212,7 +214,7 @@ function SignIn({ go }: { go: (v: View) => void }) {
           </span>
         </span>
         <ArrowRight size={17} className="text-lav" />
-      </button>
+      </button>}
 
       <p className="mt-auto pt-8 text-center text-[14px] text-muted">
         New here?{" "}
@@ -264,7 +266,9 @@ function SignUp({ go }: { go: (v: View) => void }) {
   const [username, setUsername] = useState("");
   const [avatar, setAvatar] = useState<string | undefined>();
   const [bio, setBio] = useState("");
-  const [follows, setFollows] = useState<string[]>(["u_nate", "u_marcus", "u_mya"]);
+  const [follows, setFollows] = useState<string[]>(auth.service.remote ? [] : ["u_nate", "u_marcus", "u_mya"]);
+  const [remotePeople, setRemotePeople] = useState<User[] | null>(null);
+  const [remoteTaken, setRemoteTaken] = useState<Record<string, boolean>>({});
   const [agree, setAgree] = useState(false);
   const [err, setErr] = useState<{ field: string; msg: string } | null>(null);
   const [busy, setBusy] = useState(false);
@@ -274,7 +278,21 @@ function SignUp({ go }: { go: (v: View) => void }) {
   const strength = [password.length >= 8, /[A-Z]/.test(password) || /[^a-zA-Z0-9]/.test(password), /\d/.test(password)].filter(Boolean).length;
   const uname = username.trim().toLowerCase();
   const unameValid = /^[a-z0-9._]{3,20}$/.test(uname);
-  const unameTaken = unameValid && (auth.service.usernameTaken(uname) || Object.values(db.users).some((u) => u.username.toLowerCase() === uname));
+  const unameTaken = unameValid && (auth.service.remote ? remoteTaken[uname] === true : auth.service.usernameTaken(uname) || Object.values(db.users).some((u) => u.username.toLowerCase() === uname));
+
+  // Supabase: check usernames against the real database (debounced)
+  useEffect(() => {
+    const avail = auth.service.usernameAvailable;
+    if (!auth.service.remote || !avail || !unameValid || uname in remoteTaken) return;
+    const t = setTimeout(() => avail(uname).then((ok) => setRemoteTaken((m) => ({ ...m, [uname]: !ok }))), 350);
+    return () => clearTimeout(t);
+  }, [uname, unameValid, remoteTaken, auth.service]);
+
+  // Supabase: suggested people to follow come from the database
+  useEffect(() => {
+    if (!auth.service.remote || step !== 3 || remotePeople) return;
+    void supabase?.rpc("suggested_profiles").then(({ data }) => setRemotePeople(((data as User[] | null) ?? []).map((u) => ({ ...u, hue: u.hue ?? 268 }))));
+  }, [auth.service.remote, step, remotePeople]);
 
   const step1 = () => {
     if (!EMAIL_RE.test(email.trim())) return setErr({ field: "email", msg: "Enter a valid email." });
@@ -299,12 +317,12 @@ function SignUp({ go }: { go: (v: View) => void }) {
       setBusy(false);
       if (x instanceof AuthError) {
         setErr({ field: x.field, msg: x.message });
-        setStep(x.field === "email" || x.field === "password" ? 1 : 2);
+        if (x.field !== "form") setStep(x.field === "email" || x.field === "password" ? 1 : 2);
       }
     }
   };
 
-  const people = Object.values(db.users).filter((u) => !u.id.startsWith("c"));
+  const people = auth.service.remote ? (remotePeople ?? []) : Object.values(db.users).filter((u) => !isCrowd(u.id));
 
   return (
     <div className="flex min-h-dvh flex-col px-5 pb-[max(env(safe-area-inset-bottom),20px)] pt-[max(env(safe-area-inset-top),16px)]">
@@ -393,6 +411,10 @@ function SignUp({ go }: { go: (v: View) => void }) {
         <div className="flex flex-1 flex-col">
           <AuthHeader onBack={() => setStep(2)} title="Find your people" sub="Follow friends to see their challenges in your feed." step={[3, 3]} />
           <div className="-mx-1 mb-6 space-y-1">
+            {auth.service.remote && remotePeople && !people.length && (
+              <div className="rounded-2xl bg-card p-5 text-center text-[14px] text-muted hairline">You’re early 👀 Nobody to follow yet. Join, then send your friends the link.</div>
+            )}
+            {auth.service.remote && !remotePeople && <div className="py-6 text-center text-[13px] text-dim">Finding people…</div>}
             {people.map((u) => {
               const on = follows.includes(u.id);
               return (

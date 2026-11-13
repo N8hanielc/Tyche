@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { ChevronRight, Coins, Lock, LogOut, RotateCcw, Settings, Share, Swords, Trophy } from "lucide-react";
 import { useAuth } from "@/lib/auth";
+import { REMOTE } from "@/lib/supabase";
 import { DAILY, headToHead, isPlus } from "@/lib/plus";
 import { PlusBadge } from "@/screens/Plus";
 import { useStore } from "@/lib/store";
@@ -106,7 +107,7 @@ export function ProfileScreen({ userId }: { userId?: string }) {
           <span className="flex-1">{isPlus(u) ? "Manage Tyche+" : "Upgrade to Tyche+"}</span>
           {isPlus(u) ? <PlusBadge /> : <ChevronRight size={17} className="text-dim" />}
         </button>
-        {confirmReset ? (
+        {REMOTE ? null : confirmReset ? (
           <div className="mb-2 rounded-2xl bg-card p-3 text-[13px] hairline">
             <p className="mb-3 text-muted">Reset all challenges, chats and points to the original sample data? Accounts stay signed up.</p>
             <div className="flex gap-2">

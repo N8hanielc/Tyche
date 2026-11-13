@@ -5,7 +5,7 @@ import { ChevronRight, Flame, Search, Trophy, Users, X } from "lucide-react";
 import { useStore, useNow } from "@/lib/store";
 import { useNav } from "@/lib/nav";
 import type { Challenge } from "@/lib/types";
-import { CATEGORIES, CATEGORY_EMOJI, canSee, clock, heat, totalPool, userRecord } from "@/lib/utils";
+import { CATEGORIES, CATEGORY_EMOJI, canSee, clock, heat, totalPool, userRecord, isCrowd } from "@/lib/utils";
 import { Avatar, CategoryTag, Empty, Pill } from "@/components/ui";
 import { ChallengeCard } from "@/components/challenge/ChallengeCard";
 
@@ -66,13 +66,13 @@ export function DiscoverScreen() {
   const leaders = useMemo(
     () =>
       Object.values(db.users)
-        .filter((u) => !u.id.startsWith("c"))
+        .filter((u) => !isCrowd(u.id))
         .map((u) => ({ u, r: userRecord(db, u.id) }))
         .sort((a, b) => b.r.wins - a.r.wins)
         .slice(0, 5),
     [db],
   );
-  const suggested = Object.values(db.users).filter((u) => !u.id.startsWith("c") && u.id !== db.meId && !db.following.includes(u.id));
+  const suggested = Object.values(db.users).filter((u) => !isCrowd(u.id) && u.id !== db.meId && !db.following.includes(u.id));
 
   const term = q.trim().toLowerCase().replace(/^@/, "");
   const results = term

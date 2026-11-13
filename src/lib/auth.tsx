@@ -3,6 +3,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import type { ID } from "./types";
 import { uid } from "./utils";
+import { supabase } from "@/lib/supabase";
 
 /**
  * Auth boundary. The prototype keeps accounts in localStorage with salted
@@ -32,11 +33,16 @@ export interface Session {
 }
 
 export interface AuthService {
-  getSession(): Session | null;
+  remote?: boolean;
+  getSession(): Session | null | Promise<Session | null>;
+  /** Subscribe to sign-in/out and password-recovery events; returns an unsubscribe fn. */
+  onChange?(cb: (s: Session | null, event?: string) => void): () => void;
+  usernameAvailable?(username: string): Promise<boolean>;
+  updatePassword?(password: string): Promise<void>;
   getProfile(userId: ID): Profile | null;
   signUp(input: { email: string; password: string; profile: Omit<Profile, "id"> }): Promise<Session>;
   signIn(input: { email: string; password: string }): Promise<Session>;
-  signOut(): void;
+  signOut(): void | Promise<void>;
   emailTaken(email: string): boolean;
   usernameTaken(username: string): boolean;
   requestPasswordReset(email: string): Promise<void>;
@@ -144,6 +150,70 @@ export const localAuth: AuthService = {
   },
 };
 
+// ---------------- Supabase Auth ----------------
+
+const toSession = (s: { user: { id: string; email?: string | null }; expires_at?: number } | null): Session | null =>
+  s ? { userId: s.user.id, email: s.user.email ?? "", createdAt: Date.now() } : null;
+
+function mapError(message: string): AuthError {
+  const m = message.toLowerCase();
+  if (m.includes("already registered") || m.includes("already been registered")) return new AuthError("email", "That email already has an account. Sign in instead.");
+  if (m.includes("invalid login")) return new AuthError("password", "Wrong email or password.");
+  if (m.includes("email not confirmed")) return new AuthError("email", "Confirm your email first — check your inbox.");
+  if (m.includes("database error saving new user")) return new AuthError("username", "That username was just taken. Try another.");
+  if (m.includes("password")) return new AuthError("password", message);
+  if (m.includes("email")) return new AuthError("email", message);
+  return new AuthError("form", message);
+}
+
+export const supabaseAuth: AuthService | null = supabase
+  ? {
+      remote: true,
+      async getSession() {
+        const { data } = await supabase!.auth.getSession();
+        return toSession(data.session);
+      },
+      onChange(cb) {
+        const { data } = supabase!.auth.onAuthStateChange((event, s) => cb(toSession(s), event));
+        return () => data.subscription.unsubscribe();
+      },
+      getProfile: () => null,
+      emailTaken: () => false,
+      usernameTaken: () => false,
+      async usernameAvailable(u) {
+        const { data, error } = await supabase!.rpc("username_available", { u });
+        return !error && !!data;
+      },
+      async signUp({ email, password, profile }) {
+        const { data, error } = await supabase!.auth.signUp({
+          email: email.trim(),
+          password,
+          options: { data: { name: profile.name, username: profile.username }, emailRedirectTo: typeof window !== "undefined" ? window.location.origin : undefined },
+        });
+        if (error) throw mapError(error.message);
+        if (!data.session) throw new AuthError("form", "Almost there — check your email to confirm your account, then sign in.");
+        await supabase!.rpc("update_profile", { p: { avatar: profile.avatar ?? "", bio: profile.bio ?? "", follows: profile.follows ?? [] } });
+        return toSession(data.session)!;
+      },
+      async signIn({ email, password }) {
+        const { data, error } = await supabase!.auth.signInWithPassword({ email: email.trim(), password });
+        if (error) throw mapError(error.message);
+        return toSession(data.session)!;
+      },
+      async signOut() {
+        await supabase!.auth.signOut();
+      },
+      async requestPasswordReset(email) {
+        const { error } = await supabase!.auth.resetPasswordForEmail(email.trim(), { redirectTo: typeof window !== "undefined" ? window.location.origin : undefined });
+        if (error) throw mapError(error.message);
+      },
+      async updatePassword(password) {
+        const { error } = await supabase!.auth.updateUser({ password });
+        if (error) throw mapError(error.message);
+      },
+    }
+  : null;
+
 interface AuthCtx {
   session: Session | null;
   ready: boolean;
@@ -151,18 +221,34 @@ interface AuthCtx {
   signUp: AuthService["signUp"];
   signIn: AuthService["signIn"];
   signOut: () => void;
+  recovering: boolean;
+  doneRecovering: () => void;
 }
 
 const Ctx = createContext<AuthCtx | null>(null);
 
-export function AuthProvider({ children, service = localAuth }: { children: React.ReactNode; service?: AuthService }) {
+export function AuthProvider({ children, service = supabaseAuth ?? localAuth }: { children: React.ReactNode; service?: AuthService }) {
   const [session, setSession] = useState<Session | null>(null);
   const [ready, setReady] = useState(false);
+  const [recovering, setRecovering] = useState(false);
 
   useEffect(() => {
-    ensureDemo();
-    setSession(service.getSession());
-    setReady(true);
+    let alive = true;
+    if (!service.remote) ensureDemo();
+    Promise.resolve(service.getSession()).then((s) => {
+      if (!alive) return;
+      setSession(s);
+      setReady(true);
+    });
+    const off = service.onChange?.((s, event) => {
+      if (event === "PASSWORD_RECOVERY") setRecovering(true);
+      // keep the same object when the user hasn't changed (token refreshes) to avoid reloading the app
+      setSession((prev) => (prev?.userId === s?.userId ? prev : s));
+    });
+    return () => {
+      alive = false;
+      off?.();
+    };
   }, [service]);
 
   const signUp = useCallback<AuthService["signUp"]>(async (i) => {
@@ -176,11 +262,15 @@ export function AuthProvider({ children, service = localAuth }: { children: Reac
     return s;
   }, [service]);
   const signOut = useCallback(() => {
-    service.signOut();
+    Promise.resolve(service.signOut()).catch(() => {});
     setSession(null);
   }, [service]);
+  const doneRecovering = useCallback(() => setRecovering(false), []);
 
-  const value = useMemo(() => ({ session, ready, service, signUp, signIn, signOut }), [session, ready, service, signUp, signIn, signOut]);
+  const value = useMemo(
+    () => ({ session, ready, service, signUp, signIn, signOut, recovering, doneRecovering }),
+    [session, ready, service, signUp, signIn, signOut, recovering, doneRecovering],
+  );
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
 

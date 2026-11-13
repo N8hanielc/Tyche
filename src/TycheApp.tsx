@@ -1,12 +1,13 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
+import { REMOTE } from "@/lib/supabase";
 import { StoreProvider, useStore } from "@/lib/store";
 import { AuthProvider, useAuth } from "@/lib/auth";
 import { AuthScreens } from "@/screens/Auth";
 import { NavProvider, useNav, type Screen } from "@/lib/nav";
 import { BottomNav, Toast } from "@/components/layout/AppShell";
-import { LogoMark } from "@/components/ui";
+import { BottomSheet, Button, LogoMark } from "@/components/ui";
 import { JoinSheet, ShareSheet } from "@/components/challenge/Sheets";
 import { HomeScreen } from "@/screens/Home";
 import { DiscoverScreen } from "@/screens/Discover";
@@ -79,7 +80,7 @@ function Gate() {
   const synced = !!uid && db.meId === uid && !!db.users[uid];
 
   useEffect(() => {
-    if (!uid || synced) return;
+    if (REMOTE || !uid || synced) return; // Supabase creates the profile at sign-up
     const p = service.getProfile(uid);
     actions.becomeUser(p ?? { id: uid, name: "New player", username: `player${uid.slice(-4)}` });
   }, [uid, synced, service, actions]);
@@ -94,16 +95,70 @@ function Gate() {
     <NavProvider key={uid ?? "signed-out"}>
       {uid ? <Shell /> : <AuthScreens />}
       {!uid && <Toast />}
+      <ErrorToasts />
+      <RecoverySheet />
     </NavProvider>
+  );
+}
+
+/** Surfaces server errors (e.g. “Minimum stake is 50 pts”) as toasts. */
+function ErrorToasts() {
+  const nav = useNav();
+  useEffect(() => {
+    const on = (e: Event) => nav.toast(String((e as CustomEvent).detail ?? "Something went wrong"));
+    window.addEventListener("tyche:toast", on);
+    return () => window.removeEventListener("tyche:toast", on);
+  }, [nav]);
+  return null;
+}
+
+/** After tapping a password-reset email link, set a new password. */
+function RecoverySheet() {
+  const { recovering, doneRecovering, service } = useAuth();
+  const nav = useNav();
+  const [pw, setPw] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  if (!recovering || !service.updatePassword) return null;
+  return (
+    <BottomSheet open onClose={doneRecovering} title="Set a new password">
+      <input
+        type="password"
+        autoComplete="new-password"
+        value={pw}
+        onChange={(e) => setPw(e.target.value)}
+        placeholder="At least 8 characters"
+        className="mb-2 h-14 w-full rounded-2xl bg-surface px-4 text-[16px] outline-none placeholder:text-dim focus:shadow-[0_0_0_1.5px_#8247ff]"
+      />
+      {err && <p className="mb-2 text-[13px] text-loss">{err}</p>}
+      <Button
+        size="lg"
+        className="mt-2 w-full"
+        disabled={busy || pw.length < 8}
+        onClick={async () => {
+          setBusy(true);
+          try {
+            await service.updatePassword!(pw);
+            doneRecovering();
+            nav.toast("Password updated");
+          } catch (x) {
+            setErr((x as Error).message);
+          }
+          setBusy(false);
+        }}
+      >
+        Save password
+      </Button>
+    </BottomSheet>
   );
 }
 
 export function TycheApp() {
   return (
-    <StoreProvider>
-      <AuthProvider>
+    <AuthProvider>
+      <StoreProvider>
         <Gate />
-      </AuthProvider>
-    </StoreProvider>
+      </StoreProvider>
+    </AuthProvider>
   );
 }

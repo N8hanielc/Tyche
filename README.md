@@ -57,7 +57,19 @@ src/screens/            Home, Discover, Create, Room, Rooms, Profile, Notificati
 preview/                Offline bundle script used to build the single-file preview
 ```
 
-## Adding Supabase later
+## Supabase (live mode)
+
+The app connects to Supabase automatically (project URL + publishable key in `src/lib/supabase.ts`; override with `NEXT_PUBLIC_SUPABASE_URL` / `NEXT_PUBLIC_SUPABASE_ANON_KEY`, or set `NEXT_PUBLIC_TYCHE_LOCAL=1` for the offline demo). The single-file preview always runs the offline demo.
+
+One-time setup:
+1. **SQL Editor → New query →** paste `supabase/schema.sql` → **Run**. It creates tables, row-level security, realtime, and all game logic as server functions. Safe to re-run.
+2. **Authentication → Sign In / Providers → Email:** turn **off “Confirm email”** for the beta (otherwise new users must click an email link before signing in).
+3. **Authentication → URL Configuration:** set **Site URL** to your Vercel URL and add it under Redirect URLs (needed for password-reset links).
+4. Optional: **Database → Extensions → pg_cron**, then run `select cron.schedule('tyche-tick', '* * * * *', 'select tyche_private.tick()');` so bets start and votes close even when nobody has the app open. Without it, transitions happen whenever someone loads the app.
+
+How it works: clients can only *read* tables (RLS); every write goes through an RPC (`create_challenge`, `join_challenge`, `cast_vote`, …) that enforces the rules: 50-pt minimum, no self-bets or self-votes, payouts, deadlines, dispute freezes, free-tier limits. `get_state()` returns everything the signed-in user can see in the shape the app’s store uses; Realtime changes trigger a reload. `subscribe_plus` is a **beta stand-in** (no billing). Replace it with a RevenueCat/Stripe webhook before charging money.
+
+## Adding Supabase later (original notes)
 
 - **Auth:** implement `AuthService` in `src/lib/auth.tsx` with `supabase.auth` (signUp, signInWithPassword, signInWithOAuth for Apple/Google, resetPasswordForEmail, onAuthStateChange) and pass it to `<AuthProvider service={...}>`. The prototype's local accounts use salted SHA-256 hashes in localStorage. That's fine for a demo and not secure for production.
 

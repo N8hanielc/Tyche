@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, Camera, Check, ChevronDown, FastForward, Flag, ImagePlus, Play, Reply, Send, Share2, Smile, Square, ThumbsUp, Trophy, Users, X } from "lucide-react";
 import { DISPUTES_TO_FREEZE, REQUIRED, resultDueAt, tallyVotes, useNow, useStore, voteChoices, voters } from "@/lib/store";
 import { useNav } from "@/lib/nav";
+import { REMOTE } from "@/lib/supabase";
 import { readImage } from "@/lib/media";
 import type { Challenge, Message } from "@/lib/types";
 import { CATEGORY_EMOJI, ago, clock, countdown, cx, fmtLine, fmtMinutes, myEntry, statusLabel, timeOfDay, totalPool, winnerFromValue } from "@/lib/utils";
@@ -300,7 +301,7 @@ function LivePanel({ c, isCreator, onSubmit }: { c: Challenge; isCreator: boolea
             </>
           )}
           <div className="flex gap-2">
-            {timed && !ended && (
+            {!REMOTE && timed && !ended && (
               <Button variant="soft" size="md" onClick={() => actions.fastForward(c.id, 60)} className="shrink-0">
                 <FastForward size={15} /> 1h
               </Button>
@@ -321,7 +322,7 @@ function LivePanel({ c, isCreator, onSubmit }: { c: Challenge; isCreator: boolea
               )
             )}
           </div>
-          {timed && !ended && <p className="mt-2 text-[11px] text-dim">⏩ 1h is a demo control to simulate time passing.</p>}
+          {!REMOTE && timed && !ended && <p className="mt-2 text-[11px] text-dim">⏩ 1h is a demo control to simulate time passing.</p>}
         </div>
       ) : (
         <div className="mt-4 flex items-center gap-3 border-t border-white/5 pt-4">
@@ -336,9 +337,9 @@ function LivePanel({ c, isCreator, onSubmit }: { c: Challenge; isCreator: boolea
         <span className="flex-1">
           Result due by <b className="text-white">{new Date(resultDueAt(c)).toLocaleString(undefined, { weekday: "short", hour: "numeric", minute: "2-digit" })}</b> ({countdown(resultDueAt(c), now)}). After that, participants vote.
         </span>
-        <button onClick={() => actions.demoDeadline(c.id)} className="shrink-0 rounded-lg bg-surface px-2 py-1 text-[11px] font-semibold text-lav" title="Demo control">
+        {!REMOTE && <button onClick={() => actions.demoDeadline(c.id)} className="shrink-0 rounded-lg bg-surface px-2 py-1 text-[11px] font-semibold text-lav" title="Demo control">
           ⏩ Skip
-        </button>
+        </button>}
       </div>
     </section>
   );
@@ -848,9 +849,9 @@ function VotePanel({ c, onResubmit }: { c: Challenge; onResubmit: () => void }) 
         <span className="flex-1">
           {total} of {hidden ? everyone.length : c.entries.length} voted{mine ? " · tap another to change" : ""}
         </span>
-        <button onClick={() => actions.demoEndVote(c.id)} className="shrink-0 rounded-lg bg-surface px-2 py-1 text-[11px] font-semibold text-lav" title="Demo control">
+        {!REMOTE && <button onClick={() => actions.demoEndVote(c.id)} className="shrink-0 rounded-lg bg-surface px-2 py-1 text-[11px] font-semibold text-lav" title="Demo control">
           ⏩ End vote
-        </button>
+        </button>}
       </div>
       {isCreator && v.reason === "dispute" && (
         <Button variant="soft" size="sm" className="mt-3 w-full" onClick={onResubmit}>

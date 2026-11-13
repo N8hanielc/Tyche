@@ -3,9 +3,13 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import type { Category, Challenge, DB, Format, ID, Message, Notification, Option, Plan, StakeMode, TieRule, Verifier, Visibility } from "./types";
 import { localRepository } from "./repository";
+import { seed } from "./seed";
+import { REMOTE, supabase } from "@/lib/supabase";
+import { useAuth } from "./auth";
+import { makeRemoteActions, toastError } from "./remote-actions";
 import { LogoMark } from "@/components/ui";
 import { DAILY, MIN_STAKE, TRIAL_DAYS, claimState, isPlus } from "./plus";
-import { computePayouts, fmtLine, fmtMinutes, isSelf, totalPool, uid, winnerFromValue } from "./utils";
+import { computePayouts, fmtLine, fmtMinutes, isCrowd, isSelf, totalPool, uid, winnerFromValue } from "./utils";
 
 export interface Draft {
   question: string;
@@ -290,7 +294,7 @@ function makeActions(mutate: (fn: Mutator) => void, later: (ms: number, fn: Muta
       later(2600, (db) => {
         const c = db.challenges.find((x) => x.id === challengeId);
         if (!c) return;
-        const others = c.entries.filter((e) => e.userId !== db.meId && db.users[e.userId] && !e.userId.startsWith("c"));
+        const others = c.entries.filter((e) => e.userId !== db.meId && db.users[e.userId] && !isCrowd(e.userId));
         const o = others[Math.floor(Math.random() * others.length)];
         if (!o) return;
         sysMsg(db, c.id, "❤️", `${first(db, o.userId)} reacted to ${db.users[db.meId].name}’s prediction`);
@@ -679,21 +683,26 @@ function makeActions(mutate: (fn: Mutator) => void, later: (ms: number, fn: Muta
 export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [db, setDb] = useState<DB | null>(null);
   const timers = useRef<number[]>([]);
+  const { session, signOut } = useAuth();
+  const userId = session?.userId;
+  const [loadError, setLoadError] = useState<string | null>(null);
 
+  // ---------- local (offline demo) ----------
   useEffect(() => {
+    if (REMOTE) return;
     setDb(localRepository.load());
     const t = timers.current;
     return () => t.forEach(clearTimeout);
   }, []);
 
   useEffect(() => {
-    if (db) localRepository.save(db);
+    if (!REMOTE && db) localRepository.save(db);
   }, [db]);
 
-  // scheduled transitions: auto-start, join lock, result deadline, vote close
+  // scheduled transitions (server does this in Supabase mode)
   const loaded = !!db;
   useEffect(() => {
-    if (!loaded) return;
+    if (REMOTE || !loaded) return;
     const run = () =>
       setDb((prev) => {
         if (!prev) return prev;
@@ -704,6 +713,68 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     const t = setInterval(run, 5000);
     return () => clearInterval(t);
   }, [loaded]);
+
+  // ---------- Supabase ----------
+  const inflight = useRef<Promise<void> | null>(null);
+  const again = useRef(false);
+  const reload = useCallback(async () => {
+    if (!REMOTE || !supabase) return;
+    if (inflight.current) {
+      again.current = true;
+      return inflight.current;
+    }
+    inflight.current = (async () => {
+      do {
+        again.current = false;
+        const { data, error } = await supabase.rpc("get_state");
+        if (error) {
+          toastError(error.message);
+          setLoadError(error.message);
+        } else if (data) {
+          setLoadError(null);
+          setDb(data as DB);
+        }
+      } while (again.current);
+    })();
+    try {
+      await inflight.current;
+    } finally {
+      inflight.current = null;
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!REMOTE || !supabase) return;
+    if (!userId) {
+      // signed out: decorative sample data for the welcome screen
+      setDb(seed());
+      return;
+    }
+    setDb(null);
+    void reload();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const soon = () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => void reload(), 350);
+    };
+    const channel = supabase
+      .channel(`tyche-${userId}`)
+      .on("postgres_changes", { event: "*", schema: "public", table: "messages" }, soon)
+      .on("postgres_changes", { event: "*", schema: "public", table: "challenges" }, soon)
+      .on("postgres_changes", { event: "*", schema: "public", table: "entries" }, soon)
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "notifications", filter: `to_user=eq.${userId}` }, soon)
+      .subscribe();
+    // fallback poll; also advances server-side timers (tick runs inside get_state)
+    const poll = setInterval(() => void reload(), 30_000);
+    const onFocus = () => document.visibilityState === "visible" && void reload();
+    document.addEventListener("visibilitychange", onFocus);
+    return () => {
+      clearTimeout(timer);
+      clearInterval(poll);
+      document.removeEventListener("visibilitychange", onFocus);
+      void supabase!.removeChannel(channel);
+    };
+  }, [userId, reload]);
 
   const mutate = useCallback((fn: Mutator) => {
     setDb((prev) => {
@@ -720,11 +791,33 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     [mutate],
   );
 
-  const actions = useMemo(() => ({ ...makeActions(mutate, later), reset: () => setDb(localRepository.reset()) }), [mutate, later]);
+  const actions = useMemo(
+    () =>
+      REMOTE
+        ? (makeRemoteActions(mutate, reload) as unknown as Actions & { reset: () => void })
+        : { ...makeActions(mutate, later), reset: () => setDb(localRepository.reset()) },
+    [mutate, later, reload],
+  );
 
+  if (!db && REMOTE && userId && loadError)
+    return (
+      <div className="grid min-h-dvh place-items-center bg-ink px-8 text-center">
+        <div>
+          <LogoMark size={56} className="mx-auto mb-5" />
+          <div className="mb-2 font-display text-xl font-bold">Couldn’t load Tyche</div>
+          <p className="mb-6 text-sm text-muted">{loadError}</p>
+          <div className="flex justify-center gap-2">
+            <button onClick={() => void reload()} className="rounded-2xl bg-brand px-5 py-3 text-sm font-semibold">Try again</button>
+            <button onClick={signOut} className="rounded-2xl bg-surface px-5 py-3 text-sm font-semibold">Sign out</button>
+          </div>
+        </div>
+      </div>
+    );
   if (!db) return <Splash />;
   return <Ctx.Provider value={{ db, me: db.users[db.meId], actions }}>{children}</Ctx.Provider>;
 }
+
+type Actions = ReturnType<typeof makeActions>;
 
 function Splash() {
   return (
