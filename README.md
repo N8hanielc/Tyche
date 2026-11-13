@@ -69,7 +69,15 @@ One-time setup:
 
 5. **Photos (Phase 2):** run `supabase/storage.sql` in the SQL Editor. It creates a public `media` bucket where each user can only upload into their own folder. Profile photos, challenge photos, chat images and result evidence then upload to Storage and only the URL is saved. If the bucket is missing, the app falls back to storing images inline.
 
-How it works: clients can only *read* tables (RLS); every write goes through an RPC (`create_challenge`, `join_challenge`, `cast_vote`, …) that enforces the rules: 50-pt minimum, no self-bets or self-votes, payouts, deadlines, dispute freezes, free-tier limits. `get_state()` returns everything the signed-in user can see in the shape the app’s store uses; Realtime changes trigger a reload. `subscribe_plus` is a **beta stand-in** (no billing). Replace it with a RevenueCat/Stripe webhook before charging money.
+How it works: clients can only *read* tables (RLS); every write goes through an RPC (`create_challenge`, `join_challenge`, `cast_vote`, …) that enforces the rules: 50-pt minimum, no self-bets or self-votes, payouts, deadlines, dispute freezes, free-tier limits. `get_state()` returns everything the signed-in user can see in the shape the app’s store uses; Realtime changes trigger a reload. Tyche+ billing is real once `supabase/billing.sql` is run and Stripe is configured (below); the old self-serve `subscribe_plus` is then locked.
+
+## Billing (Stripe)
+
+- `POST /api/billing/checkout` → Stripe Checkout (subscription; 7-day trial once per user; blocked in `BILLING_BLOCKED_REGIONS`, default `US-WA`).
+- `POST /api/billing/portal` → Stripe customer portal (change plan, card, cancel).
+- `POST /api/billing/webhook` → verifies the Stripe signature, then calls `apply_billing` with the service-role key to turn Plus on/off. Subscribe it to `checkout.session.completed`, `customer.subscription.created`, `customer.subscription.updated`, `customer.subscription.deleted`.
+- Vercel env vars: `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PRICE_MONTHLY`, `STRIPE_PRICE_YEARLY`, `SUPABASE_SERVICE_ROLE_KEY` (optional `BILLING_BLOCKED_REGIONS`, `STRIPE_PRICE_CREW`). Start with Stripe **test mode** keys.
+- Crew plan is hidden in live mode until group billing is built. A native iOS app will need Apple in-app purchase for subscriptions (e.g. via RevenueCat) alongside Stripe on the web.
 
 ## Adding Supabase later (original notes)
 

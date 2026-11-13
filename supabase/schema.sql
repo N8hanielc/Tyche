@@ -935,6 +935,16 @@ grant execute on all functions in schema public to authenticated;
 grant execute on function public.username_available(text) to anon;
 grant execute on function public.suggested_profiles() to anon;
 
+-- If real billing is installed (billing.sql), keep Plus server-controlled even after re-running this file.
+do $$
+begin
+  if to_regclass('public.billing_customers') is not null then
+    revoke execute on function public.subscribe_plus(text) from public, anon, authenticated;
+    revoke execute on function public.set_plus_canceled(boolean) from public, anon, authenticated;
+    revoke execute on function public.apply_billing(uuid, jsonb) from public, anon, authenticated;
+  end if;
+end $$;
+
 -- Realtime: tell the app when something it can see changes.
 do $$
 begin

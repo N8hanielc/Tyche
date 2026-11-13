@@ -96,6 +96,7 @@ function Gate() {
       {uid ? <Shell /> : <AuthScreens />}
       {!uid && <Toast />}
       <ErrorToasts />
+      {uid && <BillingReturn />}
       <RecoverySheet />
     </NavProvider>
   );
@@ -109,6 +110,24 @@ function ErrorToasts() {
     window.addEventListener("tyche:toast", on);
     return () => window.removeEventListener("tyche:toast", on);
   }, [nav]);
+  return null;
+}
+
+/** Back from Stripe Checkout (?plus=success|canceled): confirm and refresh until the webhook lands. */
+function BillingReturn() {
+  const nav = useNav();
+  const { actions } = useStore();
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const status = params.get("plus");
+    if (!status) return;
+    window.history.replaceState(null, "", window.location.pathname);
+    if (status === "canceled") return nav.toast("Checkout canceled — no charge made");
+    nav.toast("✦ Payment received — turning on Tyche+…");
+    const timers = [1500, 4000, 8000, 15000].map((ms) => setTimeout(() => actions.reset(), ms));
+    return () => timers.forEach(clearTimeout);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   return null;
 }
 

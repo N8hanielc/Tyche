@@ -4,6 +4,8 @@ import { useState } from "react";
 import { BarChart3, CalendarClock, Clock, Check, Coins, Crown, Gift, Infinity as InfinityIcon, Lock, Palette, Sparkles, Users, X } from "lucide-react";
 import { useNow, useStore } from "@/lib/store";
 import { useNav } from "@/lib/nav";
+import { REMOTE } from "@/lib/supabase";
+import { openBillingPortal, startCheckout } from "@/lib/billing-client";
 import { DAILY, LIMITS, MIN_STAKE, PLANS, TRIAL_DAYS, claimState, isPlus } from "@/lib/plus";
 import type { Plan, User } from "@/lib/types";
 import { cx } from "@/lib/utils";
@@ -115,6 +117,14 @@ export function PlusScreen({ reason }: { reason?: string }) {
 
   const buy = () => {
     setBusy(true);
+    if (REMOTE) {
+      // real billing: Stripe Checkout, Plus turns on when Stripe's webhook confirms
+      startCheckout(plan).catch((e: Error) => {
+        setBusy(false);
+        nav.toast(e.message);
+      });
+      return;
+    }
     setTimeout(() => {
       actions.subscribe(plan);
       setBusy(false);
@@ -167,7 +177,7 @@ export function PlusScreen({ reason }: { reason?: string }) {
             </div>
 
             <div className="mb-6 space-y-2">
-              {(Object.keys(PLANS) as Plan[]).map((p) => {
+              {(Object.keys(PLANS) as Plan[]).filter((p) => !(REMOTE && p === "crew")).map((p) => {
                 const P = PLANS[p];
                 const on = plan === p;
                 return (
@@ -208,7 +218,7 @@ export function PlusScreen({ reason }: { reason?: string }) {
             {busy ? <span className="h-5 w-5 animate-spin rounded-full border-2 border-white/30 border-t-white" /> : me.trialUsed ? `Subscribe · ${PLANS[plan].price}${PLANS[plan].per}` : `Start ${TRIAL_DAYS}-day free trial`}
           </Button>
           <p className="mt-2 text-center text-[11px] leading-relaxed text-dim">
-            {me.trialUsed ? "" : `Then ${PLANS[plan].price}${PLANS[plan].per}. `}Cancel anytime. Prototype: no payment is taken. Points have no cash value and can’t be redeemed for money or prizes.
+            {me.trialUsed ? "" : `Then ${PLANS[plan].price}${PLANS[plan].per}. `}Cancel anytime. {REMOTE ? "Secure checkout by Stripe." : "Prototype: no payment is taken."} Points have no cash value and can’t be redeemed for money or prizes.
           </p>
         </div>
       )}
@@ -245,7 +255,11 @@ function ManagePlus({ user, manageOpen, onOpen, onClose }: { user: User; manageO
             </div>
           ))}
         </div>
-        {s.canceled ? (
+        {REMOTE ? (
+          <Button variant="soft" className="w-full" onClick={() => openBillingPortal().catch((e: Error) => nav.toast(e.message))}>
+            Manage billing · change plan or cancel
+          </Button>
+        ) : s.canceled ? (
           <Button className="w-full" onClick={() => { actions.resumePlus(); nav.toast("Tyche+ will renew"); }}>
             Resume subscription
           </Button>
@@ -254,7 +268,7 @@ function ManagePlus({ user, manageOpen, onOpen, onClose }: { user: User; manageO
             Cancel subscription
           </Button>
         )}
-        <p className="mt-3 text-center text-[11px] text-dim">In the App Store build, this opens Apple’s subscription settings.</p>
+        <p className="mt-3 text-center text-[11px] text-dim">{REMOTE ? "Billing is handled securely by Stripe." : "In the App Store build, this opens Apple’s subscription settings."}</p>
       </div>
       <BottomSheet open={manageOpen} onClose={onClose} title="Cancel Tyche+?">
         <p className="mb-5 text-[14px] text-muted">
