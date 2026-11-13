@@ -1,6 +1,7 @@
 import type { DB, ID, Plan } from "./types";
 import type { Draft } from "./store";
 import { supabase } from "@/lib/supabase";
+import { uploadImage } from "@/lib/upload";
 
 type Mutator = (db: DB) => void;
 
@@ -46,13 +47,15 @@ export function makeRemoteActions(mutate: (fn: Mutator) => void, reload: () => P
     create(d: Draft): ID {
       const id = newId();
       const now = Date.now();
-      void call("create_challenge", {
+      void (async () => {
+      const media = (await uploadImage(d.media, "challenge")) ?? "";
+      await call("create_challenge", {
         p: {
           id,
           question: d.question,
           title: d.title,
           description: d.description,
-          media: d.media ?? "",
+          media,
           category: d.category,
           format: d.format,
           line: d.format === "over_under" ? d.line : null,
@@ -74,6 +77,7 @@ export function makeRemoteActions(mutate: (fn: Mutator) => void, reload: () => P
           invited: d.invited,
         },
       });
+      })();
       return id;
     },
     send(challengeId: ID, text: string, opts: { replyTo?: ID; image?: string } = {}) {
@@ -83,7 +87,10 @@ export function makeRemoteActions(mutate: (fn: Mutator) => void, reload: () => P
         db.messages.push({ id, challengeId, kind: "chat", userId: db.meId, text: text.trim(), image: opts.image, replyTo: opts.replyTo, reactions: {}, at: Date.now() });
         db.lastRead[challengeId] = Date.now() + 1;
       });
-      void call("send_message", { cid: challengeId, mid: id, body: text, reply: opts.replyTo ?? null, img: opts.image ?? null });
+      void (async () => {
+        const img = await uploadImage(opts.image, "chat");
+        await call("send_message", { cid: challengeId, mid: id, body: text, reply: opts.replyTo ?? null, img: img ?? null });
+      })();
     },
     react(messageId: ID, emoji: string) {
       mutate((db) => {
@@ -115,7 +122,10 @@ export function makeRemoteActions(mutate: (fn: Mutator) => void, reload: () => P
       void call("stop_timer", { cid: challengeId });
     },
     submit(challengeId: ID, optionId: ID | "__tie", value?: number, evidence?: string) {
-      void call("submit_result", { cid: challengeId, oid: optionId, val: value ?? null, evidence: evidence ?? null });
+      void (async () => {
+        const url = await uploadImage(evidence, "evidence");
+        await call("submit_result", { cid: challengeId, oid: optionId, val: value ?? null, evidence: url ?? null });
+      })();
     },
     nudge(challengeId: ID) {
       void call("nudge", { cid: challengeId });

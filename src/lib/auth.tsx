@@ -4,6 +4,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState } 
 import type { ID } from "./types";
 import { uid } from "./utils";
 import { supabase } from "@/lib/supabase";
+import { uploadImage } from "@/lib/upload";
 
 /**
  * Auth boundary. The prototype keeps accounts in localStorage with salted
@@ -192,7 +193,8 @@ export const supabaseAuth: AuthService | null = supabase
         });
         if (error) throw mapError(error.message);
         if (!data.session) throw new AuthError("form", "Almost there — check your email to confirm your account, then sign in.");
-        await supabase!.rpc("update_profile", { p: { avatar: profile.avatar ?? "", bio: profile.bio ?? "", follows: profile.follows ?? [] } });
+        const avatar = (await uploadImage(profile.avatar, "avatar")) ?? "";
+        await supabase!.rpc("update_profile", { p: { avatar, bio: profile.bio ?? "", follows: profile.follows ?? [] } });
         return toSession(data.session)!;
       },
       async signIn({ email, password }) {

@@ -67,6 +67,8 @@ One-time setup:
 3. **Authentication → URL Configuration:** set **Site URL** to your Vercel URL and add it under Redirect URLs (needed for password-reset links).
 4. Optional: **Database → Extensions → pg_cron**, then run `select cron.schedule('tyche-tick', '* * * * *', 'select tyche_private.tick()');` so bets start and votes close even when nobody has the app open. Without it, transitions happen whenever someone loads the app.
 
+5. **Photos (Phase 2):** run `supabase/storage.sql` in the SQL Editor. It creates a public `media` bucket where each user can only upload into their own folder. Profile photos, challenge photos, chat images and result evidence then upload to Storage and only the URL is saved. If the bucket is missing, the app falls back to storing images inline.
+
 How it works: clients can only *read* tables (RLS); every write goes through an RPC (`create_challenge`, `join_challenge`, `cast_vote`, …) that enforces the rules: 50-pt minimum, no self-bets or self-votes, payouts, deadlines, dispute freezes, free-tier limits. `get_state()` returns everything the signed-in user can see in the shape the app’s store uses; Realtime changes trigger a reload. `subscribe_plus` is a **beta stand-in** (no billing). Replace it with a RevenueCat/Stripe webhook before charging money.
 
 ## Adding Supabase later (original notes)

@@ -11,6 +11,7 @@ const r = await Bun.build({
     setup(b) {
       b.onResolve({ filter: /^lucide-react$/ }, () => ({ path: resolve(root, "preview/lucide-shim.tsx") }));
       b.onResolve({ filter: /^@\/lib\/supabase$/ }, () => ({ path: resolve(root, "preview/supabase-stub.ts") }));
+      b.onResolve({ filter: /^@\/lib\/upload$/ }, () => ({ path: resolve(root, "preview/upload-stub.ts") }));
       b.onResolve({ filter: /^@\/lib\/brand$/ }, () => ({ path: resolve(root, "preview/brand.ts") }));
       b.onResolve({ filter: /^@\// }, (a) => ({ path: Bun.resolveSync("./src/" + a.path.slice(2), root) }));
     },
