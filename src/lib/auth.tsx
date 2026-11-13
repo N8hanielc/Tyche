@@ -3,7 +3,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import type { ID } from "./types";
 import { uid } from "./utils";
-import { supabase } from "@/lib/supabase";
+import { SUPABASE_KEY, SUPABASE_URL, supabase } from "@/lib/supabase";
 import { uploadImage } from "@/lib/upload";
 
 /**
@@ -39,6 +39,10 @@ export interface AuthService {
   /** Subscribe to sign-in/out and password-recovery events; returns an unsubscribe fn. */
   onChange?(cb: (s: Session | null, event?: string) => void): () => void;
   usernameAvailable?(username: string): Promise<boolean>;
+  /** Google / Apple sign-in (redirects away and back). */
+  oauth?(provider: "google" | "apple"): Promise<void>;
+  /** Which social providers are switched on in Supabase. */
+  providers?(): Promise<{ google: boolean; apple: boolean }>;
   updatePassword?(password: string): Promise<void>;
   getProfile(userId: ID): Profile | null;
   signUp(input: { email: string; password: string; profile: Omit<Profile, "id"> }): Promise<Session>;
@@ -208,6 +212,22 @@ export const supabaseAuth: AuthService | null = supabase
       async requestPasswordReset(email) {
         const { error } = await supabase!.auth.resetPasswordForEmail(email.trim(), { redirectTo: typeof window !== "undefined" ? window.location.origin : undefined });
         if (error) throw mapError(error.message);
+      },
+      async oauth(provider) {
+        const { error } = await supabase!.auth.signInWithOAuth({
+          provider,
+          options: { redirectTo: window.location.origin, ...(provider === "google" ? { queryParams: { prompt: "select_account" } } : {}) },
+        });
+        if (error) throw mapError(error.message);
+      },
+      async providers() {
+        try {
+          const res = await fetch(`${SUPABASE_URL}/auth/v1/settings`, { headers: { apikey: SUPABASE_KEY } });
+          const s = await res.json();
+          return { google: !!s?.external?.google, apple: !!s?.external?.apple };
+        } catch {
+          return { google: false, apple: false };
+        }
       },
       async updatePassword(password) {
         const { error } = await supabase!.auth.updateUser({ password });

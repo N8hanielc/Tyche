@@ -45,6 +45,7 @@ export interface User {
   claimStreak?: number;
   trialUsed?: boolean;
   cardTheme?: string;
+  onboarded?: boolean; // false for new Google/Apple accounts until they confirm their profile
 }
 
 export type Plan = "monthly" | "yearly" | "crew";

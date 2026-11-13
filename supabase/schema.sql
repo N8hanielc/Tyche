@@ -32,6 +32,9 @@ create table if not exists public.profiles (
   created_at timestamptz not null default now()
 );
 
+-- added for Google/Apple sign-in: false until the user confirms their profile
+alter table public.profiles add column if not exists onboarded boolean not null default true;
+
 create table if not exists public.follows (
   follower uuid not null references public.profiles (id) on delete cascade,
   followee uuid not null references public.profiles (id) on delete cascade,
@@ -454,15 +457,48 @@ end $$;
 
 -- -------------------------------------------------------- new user trigger ----
 
+-- Makes a valid, unique username from a name/email: "Nate Coates" -> "natecoates", "natecoates2", ...
+create or replace function tyche_private.unique_username(seed text) returns text language plpgsql as $$
+declare
+  base text := left(regexp_replace(lower(coalesce(seed, '')), '[^a-z0-9._]', '', 'g'), 16);
+  candidate text;
+  n int := 0;
+begin
+  if char_length(base) < 3 then base := 'player' || base; end if;
+  candidate := base;
+  while exists (select 1 from public.profiles where username = candidate) loop
+    n := n + 1;
+    candidate := left(base, 16) || (case when n < 10 then n::text else (floor(random() * 9000) + 1000)::int::text end);
+  end loop;
+  return candidate;
+end $$;
+
+-- Creates the profile for every new account: email sign-up (name + username
+-- chosen in the app) or Google/Apple (name + photo from the provider; the
+-- user confirms their username in a short onboarding step).
 create or replace function tyche_private.handle_new_user() returns trigger language plpgsql security definer set search_path = public as $$
 declare
-  uname text := lower(coalesce(nullif(new.raw_user_meta_data ->> 'username', ''), 'player' || substr(replace(new.id::text, '-', ''), 1, 8)));
+  meta jsonb := coalesce(new.raw_user_meta_data, '{}');
+  provider text := coalesce(new.raw_app_meta_data ->> 'provider', 'email');
+  social boolean := provider <> 'email';
+  email_name text := split_part(coalesce(new.email, ''), '@', 1);
+  display text := coalesce(nullif(meta ->> 'name', ''), nullif(meta ->> 'full_name', ''),
+                           nullif(trim(concat_ws(' ', meta ->> 'given_name', meta ->> 'family_name')), ''),
+                           case when email_name <> '' and new.email not like '%privaterelay.appleid.com' then initcap(regexp_replace(email_name, '[._0-9]+', ' ', 'g')) end,
+                           'New player');
+  wanted text := lower(nullif(meta ->> 'username', ''));
+  uname text;
 begin
-  insert into public.profiles (id, username, name)
-  values (new.id, uname, coalesce(nullif(new.raw_user_meta_data ->> 'name', ''), 'New player'));
+  if wanted ~ '^[a-z0-9._]{3,20}$' and not exists (select 1 from public.profiles where username = wanted) then
+    uname := wanted;
+  else
+    uname := tyche_private.unique_username(coalesce(nullif(regexp_replace(display, '\s', '', 'g'), 'Newplayer'), email_name));
+  end if;
+  insert into public.profiles (id, username, name, avatar, onboarded)
+  values (new.id, uname, left(trim(display), 60), nullif(coalesce(meta ->> 'avatar_url', meta ->> 'picture'), ''), not social);
   insert into public.notifications (to_user, kind, text)
   values (new.id, 'invite', format('Welcome to Tyche, %s 👋 You start with 1,000 points. Find a challenge to join or put your first one on Tyche.',
-    split_part(coalesce(nullif(new.raw_user_meta_data ->> 'name', ''), 'friend'), ' ', 1)));
+    split_part(display, ' ', 1)));
   return new;
 end $$;
 
@@ -486,7 +522,7 @@ begin
         'following', (select count(*) from follows f where f.follower = p.id),
         'baseWins', p.base_wins, 'baseLosses', p.base_losses, 'points', p.points, 'badges', to_jsonb(p.badges),
         'plus', p.plus, 'lastClaimAt', tyche_private.ms(p.last_claim_at), 'claimStreak', p.claim_streak,
-        'trialUsed', p.trial_used, 'cardTheme', p.card_theme)))
+        'trialUsed', p.trial_used, 'cardTheme', p.card_theme, 'onboarded', p.onboarded)))
       from profiles p), '{}'),
     'following', coalesce((select jsonb_agg(followee) from follows where follower = uid), '[]'),
     'challenges', coalesce((select jsonb_agg(jsonb_strip_nulls(jsonb_build_object(
@@ -542,6 +578,24 @@ begin
   where id = uid;
   for f in select jsonb_array_elements_text(coalesce(p -> 'follows', '[]')) loop
     insert into follows (follower, followee) values (uid, f::uuid) on conflict do nothing;
+  end loop;
+end $$;
+
+-- Google/Apple users confirm name + username (and follow people) once.
+create or replace function public.complete_onboarding(p jsonb) returns void language plpgsql security definer set search_path = public as $$
+declare uid uuid := tyche_private.me(); u text := lower(trim(coalesce(p ->> 'username', ''))); f text;
+begin
+  if u !~ '^[a-z0-9._]{3,20}$' then raise exception 'Usernames are 3–20 letters, numbers, . or _'; end if;
+  if exists (select 1 from profiles where username = u and id <> uid) then raise exception 'That username is taken'; end if;
+  update profiles set
+    username = u,
+    name = coalesce(nullif(left(trim(p ->> 'name'), 60), ''), name),
+    bio = case when p ? 'bio' then nullif(left(p ->> 'bio', 160), '') else bio end,
+    avatar = case when coalesce(p ->> 'avatar', '') <> '' then p ->> 'avatar' else avatar end,
+    onboarded = true
+  where id = uid;
+  for f in select jsonb_array_elements_text(coalesce(p -> 'follows', '[]')) loop
+    if f::uuid <> uid then insert into follows (follower, followee) values (uid, f::uuid) on conflict do nothing; end if;
   end loop;
 end $$;
 

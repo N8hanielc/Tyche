@@ -71,6 +71,14 @@ One-time setup:
 
 How it works: clients can only *read* tables (RLS); every write goes through an RPC (`create_challenge`, `join_challenge`, `cast_vote`, …) that enforces the rules: 50-pt minimum, no self-bets or self-votes, payouts, deadlines, dispute freezes, free-tier limits. `get_state()` returns everything the signed-in user can see in the shape the app’s store uses; Realtime changes trigger a reload. Tyche+ billing is real once `supabase/billing.sql` is run and Stripe is configured (below); the old self-serve `subscribe_plus` is then locked.
 
+## Google & Apple sign-in
+
+Buttons call `supabase.auth.signInWithOAuth` and only work for providers switched on in Supabase (the app checks `/auth/v1/settings`). New Google/Apple accounts get a profile from the provider (name, photo, generated username) and see a one-time onboarding screen to confirm their username and follow people (`complete_onboarding`).
+
+- **Google:** Google Cloud Console → OAuth client (Web) with redirect URI `https://xezjxqwatubyzxqwnibp.supabase.co/auth/v1/callback` → paste Client ID + Secret into Supabase → Authentication → Providers → Google.
+- **Apple:** needs an Apple Developer account. Create a Services ID + Sign in with Apple key, then enter them in Supabase → Providers → Apple (the generated secret expires every 6 months).
+- Supabase → Authentication → URL Configuration must list your site URL under Redirect URLs.
+
 ## Billing (Stripe)
 
 - `POST /api/billing/checkout` → Stripe Checkout (subscription; 7-day trial once per user; blocked in `BILLING_BLOCKED_REGIONS`, default `US-WA`).

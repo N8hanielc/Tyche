@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { REMOTE } from "@/lib/supabase";
 import { StoreProvider, useStore } from "@/lib/store";
 import { AuthProvider, useAuth } from "@/lib/auth";
-import { AuthScreens } from "@/screens/Auth";
+import { AuthScreens, Onboarding } from "@/screens/Auth";
 import { NavProvider, useNav, type Screen } from "@/lib/nav";
 import { BottomNav, Toast } from "@/components/layout/AppShell";
 import { BottomSheet, Button, LogoMark } from "@/components/ui";
@@ -93,7 +93,7 @@ function Gate() {
     );
   return (
     <NavProvider key={uid ?? "signed-out"}>
-      {uid ? <Shell /> : <AuthScreens />}
+      {uid ? (REMOTE && db.users[uid]?.onboarded === false ? <Onboarding /> : <Shell />) : <AuthScreens />}
       {!uid && <Toast />}
       <ErrorToasts />
       {uid && <BillingReturn />}

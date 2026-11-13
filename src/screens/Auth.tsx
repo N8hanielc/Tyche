@@ -9,6 +9,7 @@ import { readImage } from "@/lib/media";
 import { cx, isCrowd } from "@/lib/utils";
 import type { User } from "@/lib/types";
 import { supabase } from "@/lib/supabase";
+import { uploadImage } from "@/lib/upload";
 import { Avatar, BottomSheet, Button, Logo } from "@/components/ui";
 
 type View = "welcome" | "signin" | "signup";
@@ -74,14 +75,7 @@ function Welcome({ go }: { go: (v: View) => void }) {
         <Button size="lg" className="w-full" onClick={() => go("signup")}>
           Create account <ArrowRight size={18} />
         </Button>
-        <div className="mt-2.5 grid grid-cols-2 gap-2">
-          <Button size="lg" variant="soft" onClick={() => nav.toast("Apple sign-in arrives with Supabase Auth")}>
-            Apple
-          </Button>
-          <Button size="lg" variant="soft" onClick={() => nav.toast("Google sign-in arrives with Supabase Auth")}>
-            Google
-          </Button>
-        </div>
+        <SocialButtons className="mt-2.5" />
         <p className="mt-5 text-center text-[14px] text-muted">
           Already on Tyche?{" "}
           <button onClick={() => go("signin")} className="font-semibold text-white underline-offset-4 hover:underline">
@@ -89,6 +83,51 @@ function Welcome({ go }: { go: (v: View) => void }) {
           </button>
         </p>
       </div>
+    </div>
+  );
+}
+
+// ---------------- Google / Apple ----------------
+
+export function SocialButtons({ className }: { className?: string }) {
+  const auth = useAuth();
+  const nav = useNav();
+  const [enabled, setEnabled] = useState<{ google: boolean; apple: boolean } | null>(null);
+  const [busy, setBusy] = useState<"google" | "apple" | null>(null);
+
+  useEffect(() => {
+    void auth.service.providers?.().then(setEnabled);
+    // came back from Google/Apple with an error?
+    const q = new URLSearchParams(window.location.search + "&" + window.location.hash.replace(/^#/, ""));
+    const err = q.get("error_description") || q.get("error");
+    if (err) {
+      nav.toast(err.replace(/\+/g, " "));
+      window.history.replaceState(null, "", window.location.pathname);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const go = async (p: "google" | "apple") => {
+    const name = p === "google" ? "Google" : "Apple";
+    if (!auth.service.oauth) return nav.toast(`${name} sign-in works in the live app`);
+    if (enabled && !enabled[p]) return nav.toast(`${name} sign-in isn’t switched on yet`);
+    setBusy(p);
+    try {
+      await auth.service.oauth(p); // redirects away
+    } catch (e) {
+      setBusy(null);
+      nav.toast((e as Error).message);
+    }
+  };
+
+  return (
+    <div className={cx("grid grid-cols-2 gap-2", className)}>
+      <Button size="lg" variant="white" disabled={busy !== null} onClick={() => go("apple")} className="bg-white text-black">
+        {busy === "apple" ? <Spinner dark /> : "Apple"}
+      </Button>
+      <Button size="lg" variant="soft" disabled={busy !== null} onClick={() => go("google")}>
+        {busy === "google" ? <Spinner /> : "Google"}
+      </Button>
     </div>
   );
 }
@@ -194,6 +233,10 @@ function SignIn({ go }: { go: (v: View) => void }) {
       <Button type="submit" size="lg" className="w-full" disabled={busy}>
         {busy ? <Spinner /> : "Sign in"}
       </Button>
+      <div className="my-4 flex items-center gap-3 text-[12px] text-dim">
+        <span className="h-px flex-1 bg-white/10" /> or <span className="h-px flex-1 bg-white/10" />
+      </div>
+      <SocialButtons />
 
       {!auth.service.remote && <button
         type="button"
@@ -448,6 +491,109 @@ function SignUp({ go }: { go: (v: View) => void }) {
   );
 }
 
-function Spinner() {
-  return <span className="h-5 w-5 animate-spin rounded-full border-2 border-white/30 border-t-white" />;
+function Spinner({ dark }: { dark?: boolean }) {
+  return <span className={cx("h-5 w-5 animate-spin rounded-full border-2", dark ? "border-black/20 border-t-black" : "border-white/30 border-t-white")} />;
+}
+
+// ---------------- First sign-in with Google / Apple ----------------
+
+/** New Google/Apple accounts confirm their name + username and follow people once. */
+export function Onboarding() {
+  const auth = useAuth();
+  const nav = useNav();
+  const { me, actions } = useStore();
+  const [name, setName] = useState(me.name === "New player" ? "" : me.name);
+  const [username, setUsername] = useState(me.username);
+  const [avatar, setAvatar] = useState<string | undefined>(me.avatar);
+  const [people, setPeople] = useState<User[] | null>(null);
+  const [follows, setFollows] = useState<string[]>([]);
+  const [taken, setTaken] = useState<Record<string, boolean>>({});
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const file = useRef<HTMLInputElement>(null);
+
+  const uname = username.trim().toLowerCase();
+  const valid = /^[a-z0-9._]{3,20}$/.test(uname);
+  const isTaken = uname !== me.username && taken[uname] === true;
+
+  useEffect(() => {
+    void supabase?.rpc("suggested_profiles").then(({ data }) => setPeople(((data as User[] | null) ?? []).filter((u) => u.id !== me.id).map((u) => ({ ...u, hue: u.hue ?? 268 }))));
+  }, [me.id]);
+  useEffect(() => {
+    const avail = auth.service.usernameAvailable;
+    if (!avail || !valid || uname === me.username || uname in taken) return;
+    const t = setTimeout(() => avail(uname).then((ok) => setTaken((m) => ({ ...m, [uname]: !ok }))), 350);
+    return () => clearTimeout(t);
+  }, [uname, valid, taken, me.username, auth.service]);
+
+  const finish = async () => {
+    if (name.trim().length < 2) return setErr("Add your name.");
+    if (!valid) return setErr("Usernames are 3–20 letters, numbers, . or _");
+    if (isTaken) return setErr("That username is taken.");
+    setBusy(true);
+    setErr("");
+    const photo = avatar && avatar !== me.avatar ? await uploadImage(avatar, "avatar") : undefined;
+    const { error } = await supabase!.rpc("complete_onboarding", { p: { name: name.trim(), username: uname, avatar: photo ?? "", follows } });
+    if (error) {
+      setBusy(false);
+      return setErr(error.message);
+    }
+    actions.reset(); // reload state
+    nav.toast(`Welcome to Tyche, ${name.trim().split(" ")[0]} 👋`);
+  };
+
+  return (
+    <div className="relative mx-auto min-h-dvh max-w-[440px] overflow-hidden bg-ink px-5 pb-[max(env(safe-area-inset-bottom),20px)] pt-[max(env(safe-area-inset-top),24px)]">
+      <div className="pointer-events-none absolute -top-40 left-1/2 h-[420px] w-[420px] -translate-x-1/2 rounded-full bg-brand/25 blur-[120px]" />
+      <div className="relative animate-rise">
+        <Logo size={22} />
+        <h1 className="mb-1 mt-6 font-display text-[30px] font-extrabold leading-tight tracking-[-0.03em]">You’re in. Make it yours.</h1>
+        <p className="mb-6 text-[15px] text-muted">Confirm how friends will find you.</p>
+        <input ref={file} type="file" accept="image/*" className="hidden" onChange={async (e) => e.target.files?.[0] && setAvatar(await readImage(e.target.files[0], 400))} />
+        <button type="button" onClick={() => file.current?.click()} className="relative mx-auto mb-6 block">
+          <Avatar user={{ ...me, name: name || me.name, avatar }} size={88} className="ring-4 ring-card" />
+          <span className="absolute bottom-0 right-0 grid h-8 w-8 place-items-center rounded-full bg-brand text-white ring-4 ring-ink">
+            <Camera size={14} />
+          </span>
+        </button>
+        <Field icon={<UserIcon size={18} />} label="Name" autoComplete="name" value={name} onChange={(e) => setName(e.target.value)} placeholder="Your name" />
+        <Field
+          icon={<AtSign size={18} />}
+          label="Username"
+          autoCapitalize="none"
+          value={username}
+          onChange={(e) => setUsername(e.target.value.replace(/\s/g, "").toLowerCase())}
+          placeholder="username"
+          hint={valid ? (isTaken ? <span className="text-loss">@{uname} is taken</span> : <span className="text-win">@{uname} is yours</span>) : "Letters, numbers, . or _"}
+          right={valid && !isTaken ? <Check size={18} className="text-win" /> : undefined}
+        />
+        <div className="mb-2 mt-2 text-[12px] font-bold uppercase tracking-[0.12em] text-dim">Follow people</div>
+        <div className="-mx-1 mb-28 space-y-1">
+          {people === null && <div className="py-4 text-center text-[13px] text-dim">Finding people…</div>}
+          {people?.length === 0 && <div className="rounded-2xl bg-card p-4 text-center text-[13px] text-muted hairline">You’re early 👀 Invite friends once you’re in.</div>}
+          {people?.map((u) => {
+            const on = follows.includes(u.id);
+            return (
+              <div key={u.id} className="flex items-center gap-3 rounded-2xl px-1 py-2">
+                <Avatar user={u} size={40} />
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-[15px] font-semibold">{u.name}</div>
+                  <div className="truncate text-[13px] text-muted">@{u.username}</div>
+                </div>
+                <button onClick={() => setFollows(on ? follows.filter((x) => x !== u.id) : [...follows, u.id])} className={cx("h-9 w-24 shrink-0 rounded-xl text-[13px] font-semibold transition active:scale-95", on ? "bg-surface text-white" : "bg-white text-ink")}>
+                  {on ? "Following" : "Follow"}
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+      <div className="fixed inset-x-0 bottom-0 z-20 mx-auto max-w-[440px] bg-gradient-to-t from-ink via-ink to-transparent px-5 pb-[max(env(safe-area-inset-bottom),16px)] pt-8">
+        {err && <p className="mb-2 text-center text-[13px] text-loss">{err}</p>}
+        <Button size="lg" className="w-full" disabled={busy} onClick={finish}>
+          {busy ? <Spinner /> : "Let’s go"}
+        </Button>
+      </div>
+    </div>
+  );
 }
