@@ -46,7 +46,7 @@ export function HomeScreen() {
           <div className="flex items-center gap-2">
             <button onClick={() => nav.push({ kind: "notifications" })} className="relative grid h-10 w-10 place-items-center rounded-full bg-card hairline active:scale-90" aria-label="Notifications">
               <Bell size={19} />
-              {unread > 0 && <span className="absolute right-1.5 top-1.5 grid h-4 min-w-4 place-items-center rounded-full bg-brand px-1 text-[9px] font-bold ring-2 ring-ink">{unread}</span>}
+              {unread > 0 && <span className="absolute right-1.5 top-1.5 grid h-4 min-w-4 place-items-center rounded-full bg-brand px-1 text-[9px] font-bold ring-2 ring-ink">{unread > 99 ? "99+" : unread}</span>}
             </button>
             <button onClick={() => nav.setTab("profile")} aria-label="Profile">
               <Avatar user={me} size={38} />

@@ -149,7 +149,7 @@ export function ProfileScreen({ userId }: { userId?: string }) {
             <div className="flex flex-1 justify-around pb-1 text-center">
               {(
                 [
-                  ["Followers", isMe && db.followerIds ? db.followerIds.length : u.followers, "followers"],
+                  [(isMe && db.followerIds ? db.followerIds.length : u.followers) === 1 ? "Follower" : "Followers", isMe && db.followerIds ? db.followerIds.length : u.followers, "followers"],
                   ["Following", isMe ? db.following.length : u.following, "following"],
                   ["Challenges", totalChallenges + u.baseWins + u.baseLosses, null],
                 ] as [string, number, "followers" | "following" | null][]

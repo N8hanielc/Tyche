@@ -32,7 +32,7 @@ export function FollowsScreen({ tab: initial }: { tab: Tab }) {
           value={tab}
           onChange={setTab}
           options={[
-            { id: "followers", label: `${followers.length.toLocaleString()} Followers` },
+            { id: "followers", label: `${followers.length.toLocaleString()} ${followers.length === 1 ? "Follower" : "Followers"}` },
             { id: "following", label: `${following.length.toLocaleString()} Following` },
           ]}
         />
@@ -78,7 +78,7 @@ export function FollowsScreen({ tab: initial }: { tab: Tab }) {
                 </button>
                 <button
                   onClick={() => actions.follow(u.id)}
-                  className={cx("h-9 w-[104px] shrink-0 rounded-xl text-[13px] font-semibold transition active:scale-95", iFollow ? "bg-surface text-white" : "bg-white text-ink")}
+                  className={cx("h-9 min-w-[112px] shrink-0 whitespace-nowrap rounded-xl px-3 text-[13px] font-semibold transition active:scale-95", iFollow ? "bg-surface text-white" : "bg-white text-ink")}
                 >
                   {iFollow ? "Following" : followsMe ? "Follow back" : "Follow"}
                 </button>

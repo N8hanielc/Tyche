@@ -930,6 +930,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       .on("postgres_changes", { event: "*", schema: "public", table: "challenges" }, soon)
       .on("postgres_changes", { event: "*", schema: "public", table: "entries" }, soon)
       .on("postgres_changes", { event: "*", schema: "public", table: "nights" }, soon)
+      .on("postgres_changes", { event: "*", schema: "public", table: "follows", filter: `followee=eq.${userId}` }, soon)
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "notifications", filter: `to_user=eq.${userId}` }, soon)
       .subscribe();
     // fallback poll; also advances server-side timers (tick runs inside get_state)

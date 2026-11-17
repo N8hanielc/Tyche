@@ -217,7 +217,12 @@ export const SEED_ME = "u_nate";
 /** Sample "crowd" accounts in the offline demo (ids c1…c16). */
 export const isCrowd = (id: ID) => /^c\d+$/.test(id);
 export function myNotifications(db: DB) {
-  return db.notifications.filter((n) => (n.to ?? SEED_ME) === db.meId);
+  return db.notifications.filter(
+    (n) =>
+      (n.to ?? SEED_ME) === db.meId &&
+      // a follow from an account that has since been deleted has nothing to show
+      !(n.kind === "follow" && (!n.actorId || !db.users[n.actorId])),
+  );
 }
 
 /** Visibility rules: public/link for all; group for members; friends for people the creator's circle includes. */

@@ -37,7 +37,11 @@ export function NotificationsScreen() {
           return (
             <button
               key={n.id}
-              onClick={() => (n.challengeId ? nav.push({ kind: "room", id: n.challengeId }) : n.actorId && nav.push({ kind: "user", id: n.actorId }))}
+              onClick={() => {
+                if (n.challengeId && db.challenges.some((c) => c.id === n.challengeId)) nav.push({ kind: "room", id: n.challengeId });
+                else if (n.actorId && db.users[n.actorId]) nav.push({ kind: "user", id: n.actorId });
+                else if (n.challengeId) nav.toast("That challenge isn’t available anymore");
+              }}
               className={cx("flex w-full items-start gap-3 px-4 py-3 text-left transition hover:bg-card", isNew && "bg-brand/[0.06]")}
             >
               <div className="relative">

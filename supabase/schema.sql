@@ -252,6 +252,17 @@ create or replace function tyche_private.notify(to_user uuid, kind text, body te
   insert into public.notifications (to_user, kind, text, challenge_id, actor_id) values (to_user, kind, body, cid, actor)
 $$;
 
+create or replace function tyche_private.follow(uid uuid, target uuid) returns void language plpgsql as $$
+begin
+  if target is null or target = uid then return; end if;
+  insert into public.follows (follower, followee) values (uid, target) on conflict do nothing;
+  if not found then return; end if;
+  -- one "started following you" per person per day, however often they toggle
+  if not exists (select 1 from public.notifications where to_user = target and actor_id = uid and kind = 'follow' and at > now() - interval '24 hours') then
+    perform tyche_private.notify(target, 'follow', 'started following you', null, uid);
+  end if;
+end $$;
+
 create or replace function tyche_private.lock(cid uuid) returns public.challenges language plpgsql as $$
 declare c public.challenges;
 begin
@@ -643,7 +654,7 @@ begin
     avatar = case when p ? 'avatar' then nullif(p ->> 'avatar', '') else avatar end
   where id = uid;
   for f in select jsonb_array_elements_text(coalesce(p -> 'follows', '[]')) loop
-    if f::uuid <> uid then insert into follows (follower, followee) values (uid, f::uuid) on conflict do nothing; end if;
+    perform tyche_private.follow(uid, f::uuid);
   end loop;
 end $$;
 
@@ -661,7 +672,7 @@ begin
     onboarded = true
   where id = uid;
   for f in select jsonb_array_elements_text(coalesce(p -> 'follows', '[]')) loop
-    if f::uuid <> uid then insert into follows (follower, followee) values (uid, f::uuid) on conflict do nothing; end if;
+    perform tyche_private.follow(uid, f::uuid);
   end loop;
 end $$;
 
@@ -947,8 +958,7 @@ begin
   if exists (select 1 from follows where follower = uid and followee = target) then
     delete from follows where follower = uid and followee = target;
   else
-    insert into follows (follower, followee) values (uid, target);
-    perform tyche_private.notify(target, 'follow', 'started following you', null, uid);
+    perform tyche_private.follow(uid, target);
   end if;
 end $$;
 
@@ -1274,6 +1284,7 @@ begin
   begin alter publication supabase_realtime add table public.entries; exception when others then null; end;
   begin alter publication supabase_realtime add table public.notifications; exception when others then null; end;
   begin alter publication supabase_realtime add table public.nights; exception when others then null; end;
+  begin alter publication supabase_realtime add table public.follows; exception when others then null; end;
 end $$;
 
 -- Optional (Phase 2): run transitions every minute even when nobody has the app open.
