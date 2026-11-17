@@ -13,7 +13,7 @@ export const dynamic = "force-dynamic";
  * subscription from Stripe and applies its *current* state, never the payload's.
  */
 export async function POST(req: Request) {
-  if (missingConfig().length) return json({ error: "Billing isn’t set up yet." }, 503);
+  if (missingConfig().length) return json({ error: `Billing isn’t set up yet. Missing on the server: ${missingConfig().join(", ")}` }, 503);
   const raw = await req.text();
   if (!verifyStripeSignature(raw, req.headers.get("stripe-signature"), process.env.STRIPE_WEBHOOK_SECRET!)) {
     return json({ error: "Bad signature" }, 400);

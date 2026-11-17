@@ -5,7 +5,7 @@ export const dynamic = "force-dynamic";
 
 /** Starts a Stripe Checkout session for Tyche+ and returns its URL. */
 export async function POST(req: Request) {
-  if (missingConfig().length) return json({ error: "Billing isn’t set up yet." }, 503);
+  if (missingConfig().length) return json({ error: `Billing isn’t set up yet. Missing on the server: ${missingConfig().join(", ")}` }, 503);
   const user = await userFromRequest(req);
   if (!user) return json({ error: "Sign in to subscribe." }, 401);
   if (blockedRegion(req)) return json({ error: "Tyche+ isn’t available in your state yet." }, 451);
