@@ -55,3 +55,6 @@ revoke execute on function public.set_plus_canceled(boolean) from public, anon, 
 -- Anyone who self-granted Plus during the beta loses it (paid members come back via the webhook).
 update public.profiles p set plus = null
 where p.plus is not null and not exists (select 1 from public.billing_customers b where b.user_id = p.id and b.stripe_subscription_id is not null);
+
+-- Make the API see the new table/function right away.
+notify pgrst, 'reload schema';
