@@ -5,6 +5,15 @@ export const dynamic = "force-dynamic";
 
 /** Starts a Stripe Checkout session for Tyche+ and returns its URL. */
 export async function POST(req: Request) {
+  try {
+    return await handle(req);
+  } catch (e) {
+    console.error("Tyche billing checkout failed", e);
+    return json({ error: `Billing error: ${e instanceof Error ? e.message : String(e)}` }, 500);
+  }
+}
+
+async function handle(req: Request) {
   if (missingConfig().length) return json({ error: `Billing isn’t set up yet. Missing on the server: ${missingConfig().join(", ")}` }, 503);
   const user = await userFromRequest(req);
   if (!user) return json({ error: "Sign in to subscribe." }, 401);
