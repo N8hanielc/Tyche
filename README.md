@@ -97,7 +97,7 @@ Buttons call `supabase.auth.signInWithOAuth` and only work for providers switche
 
 - `POST /api/billing/checkout` → Stripe Checkout (subscription; 7-day trial once per user; blocked in `BILLING_BLOCKED_REGIONS`, default `US-WA`).
 - `POST /api/billing/portal` → Stripe customer portal (change plan, card, cancel).
-- `POST /api/billing/webhook` → verifies the Stripe signature, then calls `apply_billing` with the service-role key to turn Plus on/off. Subscribe it to `checkout.session.completed`, `customer.subscription.created`, `customer.subscription.updated`, `customer.subscription.deleted`.
+- `POST /api/billing/webhook` → verifies the Stripe signature, then calls `apply_billing` with the service-role key to turn Plus on/off. Subscribe it to `checkout.session.completed`, `customer.subscription.created`, `customer.subscription.updated`, `customer.subscription.deleted`, `invoice.paid`, `invoice.payment_failed`.
 - Vercel env vars: `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PRICE_MONTHLY`, `STRIPE_PRICE_YEARLY`, `SUPABASE_SERVICE_ROLE_KEY` (optional `BILLING_BLOCKED_REGIONS`, `STRIPE_PRICE_CREW`). Start with Stripe **test mode** keys.
 - Crew plan is hidden in live mode until group billing is built. A native iOS app will need Apple in-app purchase for subscriptions (e.g. via RevenueCat) alongside Stripe on the web.
 

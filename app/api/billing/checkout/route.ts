@@ -21,7 +21,8 @@ export async function POST(req: Request) {
   const [existing] = await dbSelect<{ stripe_customer_id: string }>("billing_customers", `user_id=eq.${user.id}&select=stripe_customer_id`);
   let customer = existing?.stripe_customer_id;
   if (!customer) {
-    const c = await stripe("POST", "/customers", { email: user.email, metadata: { user_id: user.id } });
+    // idempotency key: a double-tap can't create two Stripe customers for one user
+    const c = await stripe("POST", "/customers", { email: user.email || undefined, metadata: { user_id: user.id } }, `tyche-customer-${user.id}`);
     customer = c.id as string;
     await dbUpsert("billing_customers", { user_id: user.id, stripe_customer_id: customer }, "user_id");
   }

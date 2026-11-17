@@ -6,7 +6,11 @@ export const dynamic = "force-dynamic";
 /**
  * Stripe → Tyche. Turns Tyche+ on/off. Subscribe this endpoint to:
  * checkout.session.completed, customer.subscription.created,
- * customer.subscription.updated, customer.subscription.deleted
+ * customer.subscription.updated, customer.subscription.deleted,
+ * invoice.paid, invoice.payment_failed
+ *
+ * Stripe can deliver events late or out of order, so every handler re-reads the
+ * subscription from Stripe and applies its *current* state, never the payload's.
  */
 export async function POST(req: Request) {
   if (missingConfig().length) return json({ error: "Billing isn’t set up yet." }, 503);
@@ -27,8 +31,14 @@ export async function POST(req: Request) {
       case "customer.subscription.created":
       case "customer.subscription.updated":
       case "customer.subscription.deleted":
-        await syncSubscription(obj as never);
+        await syncSubscription(await stripe("GET", `/subscriptions/${obj.id}`));
         break;
+      case "invoice.paid": // renewal: extends Plus to the new period end
+      case "invoice.payment_failed": { // card declined: status becomes past_due (3-day grace), then Stripe retries
+        const subId = obj.parent?.subscription_details?.subscription ?? obj.subscription;
+        if (subId) await syncSubscription(await stripe("GET", `/subscriptions/${subId}`));
+        break;
+      }
     }
   } catch (e) {
     console.error("Tyche billing webhook failed", event.type, e);

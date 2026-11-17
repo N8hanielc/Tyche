@@ -46,12 +46,20 @@ function form(params: Record<string, unknown>, prefix = ""): string[] {
   return out;
 }
 
-export async function stripe<T = Record<string, any>>(method: "GET" | "POST", path: string, params?: Record<string, unknown>): Promise<T> {
+/** Pinned so a Stripe dashboard upgrade can't silently change response shapes. */
+export const STRIPE_API_VERSION = "2025-03-31.basil";
+
+export async function stripe<T = Record<string, any>>(method: "GET" | "POST", path: string, params?: Record<string, unknown>, idempotencyKey?: string): Promise<T> {
   const body = params && method === "POST" ? form(params).join("&") : undefined;
   const qs = params && method === "GET" ? `?${form(params).join("&")}` : "";
   const res = await fetch(`https://api.stripe.com/v1${path}${qs}`, {
     method,
-    headers: { Authorization: `Bearer ${process.env.STRIPE_SECRET_KEY}`, "Content-Type": "application/x-www-form-urlencoded" },
+    headers: {
+      Authorization: `Bearer ${process.env.STRIPE_SECRET_KEY}`,
+      "Content-Type": "application/x-www-form-urlencoded",
+      "Stripe-Version": STRIPE_API_VERSION,
+      ...(idempotencyKey ? { "Idempotency-Key": idempotencyKey } : {}),
+    },
     body,
   });
   const data = await res.json();
