@@ -590,6 +590,24 @@ function makeActions(mutate: (fn: Mutator) => void, later: (ms: number, fn: Muta
       });
     },
 
+    /** Edit your own profile. Resolves to an error message, or null when saved. */
+    async saveProfile(p: { name: string; username: string; bio: string; avatar?: string }): Promise<string | null> {
+      let err: string | null = null;
+      mutate((db) => {
+        const uname = p.username.trim().toLowerCase();
+        if (Object.values(db.users).some((u) => u.id !== db.meId && u.username === uname)) {
+          err = "That username is taken.";
+          return;
+        }
+        const me = db.users[db.meId];
+        me.name = p.name.trim().slice(0, 60);
+        me.username = uname;
+        me.bio = p.bio.trim().slice(0, 160) || undefined;
+        if (p.avatar !== undefined) me.avatar = p.avatar || undefined;
+      });
+      return err;
+    },
+
     follow(userId: ID) {
       mutate((db) => {
         const on = db.following.includes(userId);

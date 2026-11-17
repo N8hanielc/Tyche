@@ -154,6 +154,16 @@ export function makeRemoteActions(mutate: (fn: Mutator) => void, reload: () => P
     demoEndVote(_challengeId: ID) {
       /* demo-only */
     },
+    async saveProfile(p: { name: string; username: string; bio: string; avatar?: string }): Promise<string | null> {
+      // a new photo arrives as a data: URL; upload it and store the public URL
+      const avatar = p.avatar?.startsWith("data:") ? ((await uploadImage(p.avatar, "avatar")) ?? undefined) : p.avatar;
+      if (p.avatar?.startsWith("data:") && !avatar) return "Couldn’t upload that photo. Try another one.";
+      const { error } = await supabase!.rpc("update_profile", {
+        p: { name: p.name.trim(), username: p.username.trim().toLowerCase(), bio: p.bio.trim(), ...(avatar !== undefined ? { avatar } : {}) },
+      });
+      await reload();
+      return error ? error.message : null;
+    },
     follow(userId: ID) {
       mutate((db) => {
         db.following = db.following.includes(userId) ? db.following.filter((x) => x !== userId) : [...db.following, userId];

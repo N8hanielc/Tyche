@@ -627,15 +627,22 @@ create or replace function public.suggested_profiles() returns jsonb language sq
 $$;
 
 create or replace function public.update_profile(p jsonb) returns void language plpgsql security definer set search_path = public as $$
-declare uid uuid := tyche_private.me(); f text;
+declare uid uuid := tyche_private.me(); f text; u text := lower(trim(coalesce(p ->> 'username', '')));
 begin
+  if uid is null then raise exception 'Sign in first'; end if;
+  if u <> '' then
+    if u !~ '^[a-z0-9._]{3,20}$' then raise exception 'Usernames are 3–20 letters, numbers, . or _'; end if;
+    if exists (select 1 from profiles where username = u and id <> uid) then raise exception 'That username is taken'; end if;
+  end if;
+  if p ? 'name' and length(trim(p ->> 'name')) between 1 and 1 then raise exception 'Name is too short'; end if;
   update profiles set
-    name = coalesce(nullif(p ->> 'name', ''), name),
-    bio = case when p ? 'bio' then nullif(p ->> 'bio', '') else bio end,
+    username = case when u <> '' then u else username end,
+    name = coalesce(nullif(left(trim(p ->> 'name'), 60), ''), name),
+    bio = case when p ? 'bio' then nullif(left(trim(p ->> 'bio'), 160), '') else bio end,
     avatar = case when p ? 'avatar' then nullif(p ->> 'avatar', '') else avatar end
   where id = uid;
   for f in select jsonb_array_elements_text(coalesce(p -> 'follows', '[]')) loop
-    insert into follows (follower, followee) values (uid, f::uuid) on conflict do nothing;
+    if f::uuid <> uid then insert into follows (follower, followee) values (uid, f::uuid) on conflict do nothing; end if;
   end loop;
 end $$;
 

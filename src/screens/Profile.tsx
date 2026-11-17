@@ -12,6 +12,7 @@ import type { Category } from "@/lib/types";
 import { CATEGORY_EMOJI, ago, cx, userRecord } from "@/lib/utils";
 import { Avatar, BottomSheet, Button, Segmented, TopBar } from "@/components/ui";
 import { RoomRow } from "./Rooms";
+import { EditProfileSheet } from "./EditProfile";
 
 const BADGES: Record<string, { icon: string; name: string; desc: string }> = {
   early: { icon: "🌅", name: "Early Believer", desc: "Joined in the first week" },
@@ -34,6 +35,7 @@ export function ProfileScreen({ userId }: { userId?: string }) {
   const [tab, setTab] = useState<Tab>("activity");
   const [confirmReset, setConfirmReset] = useState(false);
   const [settings, setSettings] = useState(false);
+  const [editing, setEditing] = useState(false);
   const auth = useAuth();
   const rec = userRecord(db, id);
   const following = db.following.includes(id);
@@ -124,6 +126,7 @@ export function ProfileScreen({ userId }: { userId?: string }) {
           <LogOut size={18} /> Sign out
         </button>
       </BottomSheet>
+      {isMe && <EditProfileSheet open={editing} onClose={() => setEditing(false)} />}
 
       <div className="px-4">
         <div className="relative mb-4 overflow-hidden rounded-[28px] bg-card p-5 hairline">
@@ -155,7 +158,7 @@ export function ProfileScreen({ userId }: { userId?: string }) {
           <div className="relative mt-4 flex gap-2">
             {isMe ? (
               <>
-                <Button variant="soft" className="flex-1" onClick={() => nav.toast("Profile editing ships with auth")}>
+                <Button variant="soft" className="flex-1" onClick={() => setEditing(true)}>
                   Edit profile
                 </Button>
                 <Button variant="soft" className="flex-1" onClick={() => nav.toast("Profile link copied")}>
