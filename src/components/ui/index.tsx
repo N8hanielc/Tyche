@@ -56,7 +56,7 @@ export function Logo({ size = 26, mark = true }: { size?: number; mark?: boolean
     <div className="flex items-center gap-1.5" aria-label="Tyche">
       {mark && <LogoMark size={Math.round(size * 1.15)} />}
       <span className="font-display font-extrabold leading-none tracking-[-0.04em]" style={{ fontSize: size }}>
-        tyche
+        Tyche
       </span>
     </div>
   );
