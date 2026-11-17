@@ -49,7 +49,7 @@ function form(params: Record<string, unknown>, prefix = ""): string[] {
 /** Pinned so a Stripe dashboard upgrade can't silently change response shapes. */
 export const STRIPE_API_VERSION = "2025-03-31.basil";
 
-export async function stripe<T = Record<string, any>>(method: "GET" | "POST", path: string, params?: Record<string, unknown>, idempotencyKey?: string): Promise<T> {
+export async function stripe<T = Record<string, any>>(method: "GET" | "POST" | "DELETE", path: string, params?: Record<string, unknown>, idempotencyKey?: string): Promise<T> {
   const body = params && method === "POST" ? form(params).join("&") : undefined;
   const qs = params && method === "GET" ? `?${form(params).join("&")}` : "";
   const res = await fetch(`https://api.stripe.com/v1${path}${qs}`, {

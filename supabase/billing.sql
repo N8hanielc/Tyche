@@ -56,5 +56,14 @@ revoke execute on function public.set_plus_canceled(boolean) from public, anon, 
 update public.profiles p set plus = null
 where p.plus is not null and not exists (select 1 from public.billing_customers b where b.user_id = p.id and b.stripe_subscription_id is not null);
 
+-- In-app billing notices from the webhook (e.g. "your free trial ends in 3 days").
+create or replace function public.billing_notice(uid uuid, body text) returns void
+language plpgsql security invoker set search_path = public as $$
+begin
+  perform tyche_private.notify(uid, 'invite', body);
+end $$;
+revoke execute on function public.billing_notice(uuid, text) from public, anon, authenticated;
+grant execute on function public.billing_notice(uuid, text) to service_role;
+
 -- Make the API see the new table/function right away.
 notify pgrst, 'reload schema';

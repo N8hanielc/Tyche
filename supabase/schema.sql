@@ -1246,6 +1246,25 @@ begin
   end if;
 end $$;
 
+-- Account deletion (called by /api/account/delete with the service-role key).
+-- Refunds everyone else's stakes on challenges that disappear with this account
+-- (their own challenges + props in Game Nights they host), before the cascade.
+create or replace function public.delete_account_prepare(uid uuid) returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  update profiles p set points = p.points + r.total
+  from (
+    select e.user_id, sum(e.points)::int as total
+    from entries e join challenges c on c.id = e.challenge_id
+    where c.status <> 'settled' and e.user_id <> uid
+      and (c.creator_id = uid or c.night_id in (select id from nights where host_id = uid))
+    group by e.user_id
+  ) r
+  where p.id = r.user_id;
+end $$;
+revoke execute on function public.delete_account_prepare(uuid) from public, anon, authenticated;
+grant execute on function public.delete_account_prepare(uuid) to service_role;
+
 -- Realtime: tell the app when something it can see changes.
 do $$
 begin

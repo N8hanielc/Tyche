@@ -1,5 +1,5 @@
 // Preview-only: maps lucide-react names to react-icons' Lucide set (lucide-react isn't installable offline here).
-import { LuArrowRight, LuArrowUpDown, LuAtSign, LuBell, LuCalendarClock, LuCamera, LuChartColumn, LuCheck, LuChevronDown, LuChevronLeft, LuChevronRight, LuClock, LuCoins, LuCompass, LuCopy, LuCrown, LuEye, LuEyeOff, LuFastForward, LuFlag, LuFlame, LuGift, LuGlobe, LuHash, LuHeart, LuHouse, LuImagePlus, LuInfinity, LuLink2, LuListChecks, LuLock, LuLogOut, LuMail, LuMessageCircle, LuMessageSquare, LuMessagesSquare, LuMinus, LuPalette, LuPlay, LuPlus, LuRadio, LuReply, LuRotateCcw, LuSearch, LuSend, LuSettings, LuShare, LuShare2, LuShuffle, LuSmile, LuSparkles, LuSquare, LuSwords, LuThumbsUp, LuToggleLeft, LuTrash2, LuTriangleAlert, LuTrophy, LuUser, LuUserPlus, LuUsers, LuX } from "react-icons/lu";
+import { LuArrowRight, LuArrowUpDown, LuAtSign, LuBell, LuCalendarClock, LuCamera, LuChartColumn, LuCheck, LuChevronDown, LuChevronLeft, LuChevronRight, LuClock, LuCoins, LuCompass, LuCopy, LuCrown, LuEye, LuEyeOff, LuFastForward, LuFileText, LuFlag, LuFlame, LuGift, LuGlobe, LuHash, LuHeart, LuHouse, LuImagePlus, LuInfinity, LuLink2, LuListChecks, LuLock, LuLogOut, LuMail, LuMessageCircle, LuMessageSquare, LuMessagesSquare, LuMinus, LuPalette, LuPlay, LuPlus, LuRadio, LuReply, LuRotateCcw, LuSearch, LuSend, LuSettings, LuShare, LuShare2, LuShield, LuShuffle, LuSmile, LuSparkles, LuSquare, LuSwords, LuThumbsUp, LuToggleLeft, LuTrash2, LuTriangleAlert, LuTrophy, LuUser, LuUserPlus, LuUsers, LuX } from "react-icons/lu";
 type P = { size?: number; strokeWidth?: number; className?: string; fill?: string };
 type C = React.ComponentType<Record<string, unknown>>;
 const wrap = (I: unknown) => {
@@ -28,6 +28,7 @@ export const Crown = wrap(LuCrown);
 export const Eye = wrap(LuEye);
 export const EyeOff = wrap(LuEyeOff);
 export const FastForward = wrap(LuFastForward);
+export const FileText = wrap(LuFileText);
 export const Flag = wrap(LuFlag);
 export const Flame = wrap(LuFlame);
 export const Gift = wrap(LuGift);
@@ -57,6 +58,7 @@ export const Send = wrap(LuSend);
 export const Settings = wrap(LuSettings);
 export const Share = wrap(LuShare);
 export const Share2 = wrap(LuShare2);
+export const Shield = wrap(LuShield);
 export const Shuffle = wrap(LuShuffle);
 export const Smile = wrap(LuSmile);
 export const Sparkles = wrap(LuSparkles);

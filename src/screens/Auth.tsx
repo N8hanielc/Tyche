@@ -43,6 +43,7 @@ function Welcome({ go }: { go: (v: View) => void }) {
     <div className="flex min-h-dvh flex-col px-5 pb-[max(env(safe-area-inset-bottom),20px)] pt-[max(env(safe-area-inset-top),20px)]">
       <Logo size={26} />
       <div className="relative mb-4 mt-5 h-[350px]">
+        <span className="absolute -top-1 right-0 z-10 rounded-full bg-surface/90 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.1em] text-dim">Examples</span>
         {cards.map((c, i) => (
           <div
             key={i}
@@ -390,7 +391,11 @@ function SignUp({ go }: { go: (v: View) => void }) {
           )}
           <button type="button" onClick={() => setAgree(!agree)} className="mb-1 flex items-start gap-3 text-left text-[13px] leading-snug text-muted">
             <span className={cx("mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded-md transition", agree ? "bg-brand" : "border border-white/20")}>{agree && <Check size={13} strokeWidth={3} />}</span>
-            I’m 18 or older and agree to the Terms and Privacy Policy. Tyche uses points only — no real money.
+            <span>
+              I’m 18 or older and agree to the{" "}
+              <a href="/terms" target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} className="font-semibold text-white underline underline-offset-2">Terms</a> and{" "}
+              <a href="/privacy" target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} className="font-semibold text-white underline underline-offset-2">Privacy Policy</a>. Tyche uses points only — no real money.
+            </span>
           </button>
           {err?.field === "agree" && <p className="mb-2 text-[13px] text-loss">{err.msg}</p>}
           <div className="mt-auto pt-8">

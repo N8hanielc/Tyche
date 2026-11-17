@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { ChevronRight, Coins, Lock, LogOut, RotateCcw, Settings, Share, Swords, Trophy } from "lucide-react";
+import { ChevronRight, Coins, FileText, Lock, LogOut, RotateCcw, Settings, Share, Shield, Swords, Trash2, Trophy } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { REMOTE } from "@/lib/supabase";
 import { DAILY, headToHead, isPlus } from "@/lib/plus";
@@ -12,7 +12,7 @@ import type { Category } from "@/lib/types";
 import { CATEGORY_EMOJI, ago, cx, userRecord } from "@/lib/utils";
 import { Avatar, BottomSheet, Button, Segmented, TopBar } from "@/components/ui";
 import { RoomRow } from "./Rooms";
-import { EditProfileSheet } from "./EditProfile";
+import { DeleteAccountSheet, EditProfileSheet } from "./EditProfile";
 
 const BADGES: Record<string, { icon: string; name: string; desc: string }> = {
   early: { icon: "🌅", name: "Early Believer", desc: "Joined in the first week" },
@@ -36,6 +36,7 @@ export function ProfileScreen({ userId }: { userId?: string }) {
   const [confirmReset, setConfirmReset] = useState(false);
   const [settings, setSettings] = useState(false);
   const [editing, setEditing] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const auth = useAuth();
   const rec = userRecord(db, id);
   const following = db.following.includes(id);
@@ -122,10 +123,20 @@ export function ProfileScreen({ userId }: { userId?: string }) {
             <RotateCcw size={18} className="text-muted" /> Reset demo data
           </button>
         )}
+        <a href="/privacy" target="_blank" rel="noreferrer" className="mb-1 flex w-full items-center gap-3 rounded-2xl px-2 py-3 text-left text-[15px] hover:bg-surface">
+          <Shield size={18} className="text-muted" /> <span className="flex-1">Privacy Policy</span> <ChevronRight size={17} className="text-dim" />
+        </a>
+        <a href="/terms" target="_blank" rel="noreferrer" className="mb-1 flex w-full items-center gap-3 rounded-2xl px-2 py-3 text-left text-[15px] hover:bg-surface">
+          <FileText size={18} className="text-muted" /> <span className="flex-1">Terms of Service</span> <ChevronRight size={17} className="text-dim" />
+        </a>
         <button onClick={() => { setSettings(false); auth.signOut(); }} className="flex w-full items-center gap-3 rounded-2xl px-2 py-3 text-left text-[15px] font-semibold text-loss hover:bg-loss/10">
           <LogOut size={18} /> Sign out
         </button>
+        <button onClick={() => { setSettings(false); setDeleting(true); }} className="mt-1 flex w-full items-center gap-3 rounded-2xl px-2 py-3 text-left text-[13px] text-dim hover:bg-loss/10 hover:text-loss">
+          <Trash2 size={16} /> Delete account
+        </button>
       </BottomSheet>
+      {isMe && <DeleteAccountSheet open={deleting} onClose={() => setDeleting(false)} />}
       {isMe && <EditProfileSheet open={editing} onClose={() => setEditing(false)} />}
 
       <div className="px-4">

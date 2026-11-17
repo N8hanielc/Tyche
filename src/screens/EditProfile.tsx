@@ -6,6 +6,8 @@ import { useAuth } from "@/lib/auth";
 import { useStore } from "@/lib/store";
 import { useNav } from "@/lib/nav";
 import { readImage } from "@/lib/media";
+import { deleteAccount } from "@/lib/account-client";
+import { REMOTE } from "@/lib/supabase";
 import { cx } from "@/lib/utils";
 import { Avatar, BottomSheet, Button } from "@/components/ui";
 
@@ -138,6 +140,66 @@ export function EditProfileSheet({ open, onClose }: { open: boolean; onClose: ()
       <Button size="lg" className="w-full" disabled={busy || !dirty || isTaken} onClick={save}>
         {busy ? "Saving…" : "Save"}
       </Button>
+    </BottomSheet>
+  );
+}
+
+/** Permanent account deletion, behind a typed confirmation. */
+export function DeleteAccountSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const { db, actions } = useStore();
+  const auth = useAuth();
+  const nav = useNav();
+  const [typed, setTyped] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const plus = !!db.users[db.meId]?.plus;
+  useEffect(() => {
+    if (open) {
+      setTyped("");
+      setErr("");
+    }
+  }, [open]);
+
+  const go = async () => {
+    setBusy(true);
+    setErr("");
+    try {
+      await deleteAccount();
+      if (!REMOTE) actions.reset();
+      onClose();
+      await auth.signOut();
+      nav.toast("Your account was deleted");
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <BottomSheet open={open} onClose={onClose} title="Delete your account?">
+      <p className="mb-3 text-[14px] text-muted">This can’t be undone. We’ll permanently delete:</p>
+      <ul className="mb-4 space-y-1.5 text-[14px] text-white/85">
+        <li>• Your profile, points and record</li>
+        <li>• Challenges and Game Nights you created (others get their points back)</li>
+        <li>• Your picks, messages and notifications</li>
+        <li>• Every photo you uploaded</li>
+        {plus && <li>• Your Tyche+ subscription (cancelled now, no more charges)</li>}
+      </ul>
+      <label className="mb-1.5 block text-[12px] font-bold uppercase tracking-[0.12em] text-dim">Type DELETE to confirm</label>
+      <input
+        value={typed}
+        onChange={(e) => setTyped(e.target.value.toUpperCase())}
+        autoCapitalize="characters"
+        autoCorrect="off"
+        placeholder="DELETE"
+        className="mb-4 h-12 w-full rounded-2xl bg-surface px-4 text-[16px] font-semibold tracking-[0.1em] outline-none placeholder:text-dim"
+      />
+      {err && <p className="mb-2 text-center text-[13px] text-loss">{err}</p>}
+      <Button size="lg" variant="danger" className="w-full" disabled={busy || typed !== "DELETE"} onClick={go}>
+        {busy ? "Deleting…" : "Delete my account"}
+      </Button>
+      <button onClick={onClose} className="mt-2 w-full py-2 text-[14px] font-semibold text-muted">Keep my account</button>
     </BottomSheet>
   );
 }
