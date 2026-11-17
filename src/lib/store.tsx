@@ -1,7 +1,18 @@
 "use client";
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
-import type { Category, Challenge, DB, Format, ID, Message, Notification, Option, Plan, StakeMode, TieRule, Verifier, Visibility } from "./types";
+import type { Category, Challenge, DB, Format, ID, Message, Night, Notification, Option, Plan, PropMeta, StakeMode, TieRule, Verifier, Visibility } from "./types";
+import { WILD_STAKE } from "./gamenight/templates";
+
+/** What createProps needs from a template-built prop. */
+export interface PropSpecLite {
+  question: string;
+  format: Format;
+  options: Option[];
+  line?: number;
+  unit?: string;
+  meta: PropMeta;
+}
 import { localRepository } from "./repository";
 import { seed } from "./seed";
 import { REMOTE, supabase } from "@/lib/supabase";
@@ -278,7 +289,9 @@ function makeActions(mutate: (fn: Mutator) => void, later: (ms: number, fn: Muta
         if (!c || c.status !== "open") return;
         const prev = c.entries.find((e) => e.userId === db.meId);
         if (isSelf(c.options.find((o) => o.id === optionId), db.meId)) return;
-        if (c.stakeMode !== "bragging" && (points < MIN_STAKE || me.points + (prev?.points ?? 0) < MIN_STAKE)) return;
+        if (c.prop?.pending || c.closesAt <= Date.now()) return;
+        if (c.prop?.kind === "wild" && c.stakeMode !== "bragging") points = WILD_STAKE;
+        else if (c.stakeMode !== "bragging" && (points < MIN_STAKE || me.points + (prev?.points ?? 0) < MIN_STAKE)) return;
         if (prev) {
           me.points += prev.points;
           c.entries = c.entries.filter((e) => e !== prev);
@@ -660,6 +673,141 @@ function makeActions(mutate: (fn: Mutator) => void, later: (ms: number, fn: Muta
       });
     },
 
+    // ---------------- Game Night ----------------
+
+    createNight(n: Night): ID {
+      mutate((db) => {
+        db.nights = [n, ...(db.nights ?? [])];
+        n.memberIds.filter((m) => m !== db.meId).forEach(() => {
+          /* invitees get a notification in live mode */
+        });
+      });
+      return n.id;
+    },
+
+    /** Host saves the night (players, teams, games, rounds, scores). */
+    saveNight(n: Night) {
+      mutate((db) => {
+        db.nights = (db.nights ?? []).map((x) => (x.id === n.id ? structuredClone(n) : x));
+      });
+    },
+
+    inviteToNight(nightId: ID, userIds: ID[]) {
+      mutate((db) => {
+        const n = db.nights?.find((x) => x.id === nightId);
+        if (n) n.memberIds = [...new Set([...n.memberIds, ...userIds])];
+      });
+    },
+
+    createProps(nightId: ID, gameId: ID | undefined, specs: PropSpecLite[]): ID[] {
+      const ids = specs.map(() => uid("ch"));
+      mutate((db) => {
+        const n = db.nights?.find((x) => x.id === nightId);
+        if (!n) return;
+        const now = Date.now();
+        specs.forEach((s, i) => {
+          const c: Challenge = {
+            id: ids[i], creatorId: db.meId, createdAt: now + i, category: "Game Night", question: s.question, format: s.format,
+            line: s.line, unit: s.unit, options: s.options, entries: [], stakeMode: "even", visibility: "night", closesAt: now + 24 * 3_600_000,
+            resolution: "Settled from the Game Night scoreboard by the host.", tieRule: "refund", verifier: "creator", status: "open",
+            likes: [], shares: 0, nightId, gameId, prop: { ...s.meta, pending: n.hostId !== db.meId },
+          };
+          db.challenges.unshift(c);
+          sysMsg(db, c.id, s.meta.kind === "wild" ? "🃏" : "🎲", `${db.users[db.meId].name} added this prop${c.prop?.pending ? " · waiting for host approval" : ""}`, now + i);
+        });
+      });
+      return ids;
+    },
+
+    approveProp(cid: ID) {
+      mutate((db) => {
+        const c = db.challenges.find((x) => x.id === cid);
+        if (!c?.prop) return;
+        c.prop.pending = false;
+        sysMsg(db, cid, "✅", "Host approved this prop — picks are open");
+      });
+    },
+
+    editProp(cid: ID, question: string, options?: Option[], line?: number) {
+      mutate((db) => {
+        const c = db.challenges.find((x) => x.id === cid);
+        if (!c || c.status === "settled") return;
+        if ((options || line != null) && c.entries.length) return;
+        c.question = question.trim() || c.question;
+        if (options) c.options = options;
+        if (line != null) {
+          c.line = line;
+          if (c.prop?.resolver?.type === "ou") c.prop.resolver.line = line;
+        }
+        sysMsg(db, cid, "✏️", "Host edited this prop");
+      });
+    },
+
+    removeProp(cid: ID) {
+      mutate((db) => {
+        const c = db.challenges.find((x) => x.id === cid);
+        if (!c || c.status === "settled") return;
+        c.entries.forEach((e) => db.users[e.userId] && (db.users[e.userId].points += e.points));
+        db.challenges = db.challenges.filter((x) => x.id !== cid);
+        db.messages = db.messages.filter((m) => m.challengeId !== cid);
+      });
+    },
+
+    lockProps(cids: ID[]) {
+      mutate((db) => {
+        cids.forEach((cid) => {
+          const c = db.challenges.find((x) => x.id === cid);
+          if (!c || c.status !== "open" || c.closesAt <= Date.now()) return;
+          c.closesAt = Date.now();
+          c.lockedAt = Date.now();
+          sysMsg(db, cid, "🔒", "Picks locked — cards are being dealt");
+        });
+      });
+    },
+
+    settleProps(items: { cid: ID; optionId: ID; value?: number }[]) {
+      if (!items.length) return;
+      mutate((db) => {
+        items.forEach(({ cid, optionId, value }) => {
+          const c = db.challenges.find((x) => x.id === cid);
+          if (!c || c.status === "settled") return;
+          c.closesAt = Math.min(c.closesAt, Date.now());
+          c.result = { optionId, value, submittedBy: db.meId, submittedAt: Date.now(), confirmations: [db.meId], disputes: [] };
+          sysMsg(db, cid, "🎲", `Settled from the scoreboard: ${optionId === "__tie" ? "Tie" : optLabel(c, optionId)}${value != null ? ` (${value})` : ""}`);
+          settle(db, c);
+        });
+      });
+    },
+
+    resettleProp(cid: ID, optionId: ID) {
+      mutate((db) => {
+        const c = db.challenges.find((x) => x.id === cid);
+        if (!c || c.status !== "settled" || !c.result) return;
+        c.entries.forEach((e) => {
+          const net = c.result!.payouts?.[e.userId] ?? 0;
+          const u = db.users[e.userId];
+          if (u && net >= 0) u.points = Math.max(0, u.points - (e.points + net));
+        });
+        c.status = "review";
+        c.result = { optionId, submittedBy: db.meId, submittedAt: Date.now(), confirmations: [db.meId], disputes: [] };
+        sysMsg(db, cid, "↩️", `Host re-settled this prop: ${optionId === "__tie" ? "Tie" : optLabel(c, optionId)}`);
+        settle(db, c);
+      });
+    },
+
+    disputeProp(cid: ID, reason: string) {
+      mutate((db) => sysMsg(db, cid, "⚠️", `${db.users[db.meId].name} disputed this${reason ? `: “${reason}”` : ""}`));
+    },
+
+    endNight(n: Night, champion: NonNullable<Night["champion"]> & { name: string }) {
+      mutate((db) => {
+        const x = db.nights?.find((y) => y.id === n.id);
+        if (!x) return;
+        Object.assign(x, structuredClone(n), { status: "ended", endedAt: Date.now(), champion });
+        notify(db, { kind: "won", text: `👑 ${champion.name} is the champion of ${n.name}` });
+      });
+    },
+
     readNotifications() {
       mutate((db) => db.notifications.forEach((n) => (n.to ?? "u_nate") === db.meId && (n.read = true)));
     },
@@ -762,6 +910,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       .on("postgres_changes", { event: "*", schema: "public", table: "messages" }, soon)
       .on("postgres_changes", { event: "*", schema: "public", table: "challenges" }, soon)
       .on("postgres_changes", { event: "*", schema: "public", table: "entries" }, soon)
+      .on("postgres_changes", { event: "*", schema: "public", table: "nights" }, soon)
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "notifications", filter: `to_user=eq.${userId}` }, soon)
       .subscribe();
     // fallback poll; also advances server-side timers (tick runs inside get_state)

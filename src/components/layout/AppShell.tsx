@@ -11,7 +11,7 @@ export function unreadRooms(db: DB) {
   let n = 0;
   db.challenges.forEach((c) => {
     const involved = c.creatorId === db.meId || c.entries.some((e) => e.userId === db.meId);
-    if (!involved) return;
+    if (!involved || c.nightId) return; // night props live in the Game Night screen
     const last = db.lastRead[c.id] ?? 0;
     n += db.messages.filter((m) => m.challengeId === c.id && m.at > last && m.userId !== db.meId).length;
   });

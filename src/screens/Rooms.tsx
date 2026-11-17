@@ -10,6 +10,7 @@ import { Avatar, AvatarStack, BottomSheet, Button, Empty, Segmented, StatusDot, 
 import { ChallengeCard } from "@/components/challenge/ChallengeCard";
 import { LIMITS, isPlus, ownedGroups } from "@/lib/plus";
 import { LimitSheet } from "@/screens/Plus";
+import { NightsSection } from "@/screens/GameNight";
 
 type Tab = "active" | "friends" | "done" | "groups";
 
@@ -62,10 +63,10 @@ export function RoomsScreen() {
   const creating = creatingRaw && !atLimit;
   const startGroup = () => (atLimit ? setLimit(true) : setCreating(true));
 
-  const involved = (c: Challenge) => c.creatorId === db.meId || c.entries.some((e) => e.userId === db.meId);
+  const involved = (c: Challenge) => !c.nightId && (c.creatorId === db.meId || c.entries.some((e) => e.userId === db.meId));
   const byActivity = (a: Challenge, b: Challenge) => (lastMessage(db, b)?.at ?? b.createdAt) - (lastMessage(db, a)?.at ?? a.createdAt);
   const active = db.challenges.filter((c) => involved(c) && c.status !== "settled").sort(byActivity);
-  const friends = db.challenges.filter((c) => !involved(c) && c.status !== "settled" && c.visibility !== "public" && canSee(db, c)).sort(byActivity);
+  const friends = db.challenges.filter((c) => !c.nightId && !involved(c) && c.status !== "settled" && c.visibility !== "public" && canSee(db, c)).sort(byActivity);
   const done = db.challenges.filter((c) => c.status === "settled" && involved(c)).sort(byActivity);
   const list = tab === "active" ? active : tab === "friends" ? friends : done;
 
@@ -115,6 +116,7 @@ export function RoomsScreen() {
           </div>
         ) : (
           <div className="pt-1">
+            {tab === "active" && <NightsSection />}
             {list.map((c) => (
               <RoomRow key={c.id} c={c} />
             ))}

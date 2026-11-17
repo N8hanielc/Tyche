@@ -1,5 +1,5 @@
 // Preview-only: maps lucide-react names to react-icons' Lucide set (lucide-react isn't installable offline here).
-import { LuArrowRight, LuArrowUpDown, LuAtSign, LuBell, LuCalendarClock, LuCamera, LuChartColumn, LuCheck, LuChevronDown, LuChevronLeft, LuChevronRight, LuClock, LuCoins, LuCompass, LuCopy, LuCrown, LuEye, LuEyeOff, LuFastForward, LuFlag, LuFlame, LuGift, LuGlobe, LuHash, LuHeart, LuHouse, LuImagePlus, LuInfinity, LuLink2, LuListChecks, LuLock, LuLogOut, LuMail, LuMessageCircle, LuMessageSquare, LuMessagesSquare, LuMinus, LuPalette, LuPlay, LuPlus, LuRadio, LuReply, LuRotateCcw, LuSearch, LuSend, LuSettings, LuShare, LuShare2, LuSmile, LuSparkles, LuSquare, LuSwords, LuThumbsUp, LuToggleLeft, LuTriangleAlert, LuTrophy, LuUser, LuUsers, LuX } from "react-icons/lu";
+import { LuArrowRight, LuArrowUpDown, LuAtSign, LuBell, LuCalendarClock, LuCamera, LuChartColumn, LuCheck, LuChevronDown, LuChevronLeft, LuChevronRight, LuClock, LuCoins, LuCompass, LuCopy, LuCrown, LuEye, LuEyeOff, LuFastForward, LuFlag, LuFlame, LuGift, LuGlobe, LuHash, LuHeart, LuHouse, LuImagePlus, LuInfinity, LuLink2, LuListChecks, LuLock, LuLogOut, LuMail, LuMessageCircle, LuMessageSquare, LuMessagesSquare, LuMinus, LuPalette, LuPlay, LuPlus, LuRadio, LuReply, LuRotateCcw, LuSearch, LuSend, LuSettings, LuShare, LuShare2, LuShuffle, LuSmile, LuSparkles, LuSquare, LuSwords, LuThumbsUp, LuToggleLeft, LuTrash2, LuTriangleAlert, LuTrophy, LuUser, LuUserPlus, LuUsers, LuX } from "react-icons/lu";
 type P = { size?: number; strokeWidth?: number; className?: string; fill?: string };
 type C = React.ComponentType<Record<string, unknown>>;
 const wrap = (I: unknown) => {
@@ -57,13 +57,16 @@ export const Send = wrap(LuSend);
 export const Settings = wrap(LuSettings);
 export const Share = wrap(LuShare);
 export const Share2 = wrap(LuShare2);
+export const Shuffle = wrap(LuShuffle);
 export const Smile = wrap(LuSmile);
 export const Sparkles = wrap(LuSparkles);
 export const Square = wrap(LuSquare);
 export const Swords = wrap(LuSwords);
 export const ThumbsUp = wrap(LuThumbsUp);
 export const ToggleLeft = wrap(LuToggleLeft);
+export const Trash2 = wrap(LuTrash2);
 export const Trophy = wrap(LuTrophy);
 export const User = wrap(LuUser);
+export const UserPlus = wrap(LuUserPlus);
 export const Users = wrap(LuUsers);
 export const X = wrap(LuX);

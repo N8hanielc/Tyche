@@ -7,6 +7,7 @@ import { useNav } from "@/lib/nav";
 import type { Challenge } from "@/lib/types";
 import { cx, estimateReturn, fmtLine, isSelf, multiplier, totalPool } from "@/lib/utils";
 import { Avatar, BottomSheet, Button, Logo } from "@/components/ui";
+import { WILD_STAKE } from "@/lib/gamenight/templates";
 import { CARD_THEMES, DAILY, MIN_STAKE, claimState, daysToMinimum, isPlus, type CardTheme } from "@/lib/plus";
 import { Lock } from "lucide-react";
 
@@ -33,9 +34,11 @@ export function JoinSheet() {
 
   if (!c) return null;
   const bragging = c.stakeMode === "bragging";
+  const wild = c.prop?.kind === "wild" && !bragging;
+  const pending = !!c.prop?.pending;
   const balance = me.points + (existing?.points ?? 0);
-  const short = !bragging && balance < MIN_STAKE;
-  const s = Math.max(MIN_STAKE, Math.min(stake, balance));
+  const short = !bragging && balance < (wild ? WILD_STAKE : MIN_STAKE);
+  const s = wild ? WILD_STAKE : Math.max(MIN_STAKE, Math.min(stake, balance));
   const claim = claimState(me);
   const days = daysToMinimum(me, balance);
   const ret = opt ? estimateReturn(c, opt, s, db.meId) : 0;
@@ -75,7 +78,16 @@ export function JoinSheet() {
         ))}
       </div>
 
-      {bragging ? (
+      {pending ? (
+        <div className="mb-5 rounded-2xl bg-gold/10 p-4 text-[14px] text-gold">Waiting for the host to approve this prop. Picks open once it’s approved.</div>
+      ) : wild && !short ? (
+        <div className="mb-5 rounded-2xl bg-[linear-gradient(120deg,rgba(255,93,115,0.16),rgba(32,35,49,0.7))] p-4">
+          <div className="font-semibold">🃏 Wild Prop · {WILD_STAKE} pts flat</div>
+          <div className="mt-0.5 text-[13px] text-muted">
+            Win up to {opt ? estimateReturn(c, opt, WILD_STAKE, db.meId) : "—"} pts. Counts toward the Wild Card award, not the championship.
+          </div>
+        </div>
+      ) : bragging ? (
         <div className="mb-5 rounded-2xl bg-gold/10 p-4 text-[14px] text-gold">
           <div className="font-semibold">No points on this one 👑</div>
           <div className="mt-0.5 text-gold/80">{c.forfeit ?? "Bragging rights only."}</div>
@@ -142,7 +154,7 @@ export function JoinSheet() {
         </>
       )}
 
-      <Button size="lg" className="w-full" disabled={!opt || short} onClick={confirm}>
+      <Button size="lg" className="w-full" disabled={!opt || short || pending} onClick={confirm}>
         {short ? `Need ${MIN_STAKE} pts to join` : opt ? `${existing ? "Update" : "Take"} ${label}${bragging ? "" : ` · ${s} pts`}` : "Pick a side"}
       </Button>
     </BottomSheet>

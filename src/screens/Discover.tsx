@@ -55,7 +55,7 @@ export function DiscoverScreen() {
   const [q, setQ] = useState("");
   const [cat, setCat] = useState<string | null>(null);
 
-  const visible = db.challenges.filter((c) => canSee(db, c));
+  const visible = db.challenges.filter((c) => !c.nightId && canSee(db, c));
   const active = visible.filter((c) => c.status !== "settled" && (!cat || c.category === cat));
   const live = active.filter((c) => c.status === "live");
   const trending = [...active].sort((a, b) => heat(b, db) - heat(a, db));

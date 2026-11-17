@@ -1,5 +1,5 @@
-import type { DB, ID, Plan } from "./types";
-import type { Draft } from "./store";
+import type { DB, ID, Night, Option, Plan } from "./types";
+import type { Draft, PropSpecLite } from "./store";
 import { supabase } from "@/lib/supabase";
 import { uploadImage } from "@/lib/upload";
 
@@ -9,6 +9,12 @@ type Mutator = (db: DB) => void;
 export function toastError(message: string) {
   if (typeof window === "undefined") return;
   window.dispatchEvent(new CustomEvent("tyche:toast", { detail: message.replace(/^.*?: /, "") }));
+}
+
+/** The part of a Night stored in nights.data (everything except its own columns). */
+function nightData(n: Night) {
+  const { id: _i, hostId: _h, name: _n, createdAt: _c, status: _s, endedAt: _e, champion: _ch, memberIds: _m, ...data } = n;
+  return data;
 }
 
 const newId = () => (typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `${Date.now().toString(16)}-0000-4000-8000-${Math.random().toString(16).slice(2, 14).padEnd(12, "0")}`);
@@ -201,6 +207,76 @@ export function makeRemoteActions(mutate: (fn: Mutator) => void, reload: () => P
     },
     reset() {
       void reload();
+    },
+
+    // ---------------- Game Night ----------------
+
+    createNight(n: Night): ID {
+      mutate((db) => {
+        db.nights = [n, ...(db.nights ?? [])];
+      });
+      void call("create_night", { nid: n.id, nname: n.name, ndata: nightData(n), members: n.memberIds });
+      return n.id;
+    },
+    saveNight(n: Night) {
+      mutate((db) => {
+        db.nights = (db.nights ?? []).map((x) => (x.id === n.id ? structuredClone(n) : x));
+      });
+      void call("update_night", { nid: n.id, ndata: nightData(n) });
+    },
+    inviteToNight(nightId: ID, userIds: ID[]) {
+      void call("night_invite", { nid: nightId, members: userIds });
+    },
+    createProps(nightId: ID, gameId: ID | undefined, specs: PropSpecLite[]): ID[] {
+      const ids = specs.map(() => newId());
+      void (async () => {
+        const now = Date.now();
+        for (let i = 0; i < specs.length; i++) {
+          const s = specs[i];
+          const { error } = await supabase!.rpc("create_challenge", {
+            p: {
+              id: ids[i], nightId, gameId: gameId ?? "", question: s.question, format: s.format, category: "Game Night",
+              line: s.line ?? null, unit: s.unit ?? "", options: s.options, stakeMode: "even", visibility: "night",
+              closesAt: now + 24 * 3_600_000, resolution: "Settled from the Game Night scoreboard by the host.", tieRule: "refund",
+              verifier: "creator", prop: s.meta, invited: [],
+            },
+          });
+          if (error) toastError(error.message);
+        }
+        await reload();
+      })();
+      return ids;
+    },
+    approveProp(cid: ID) {
+      void call("night_approve_prop", { cid });
+    },
+    editProp(cid: ID, question: string, options?: Option[], line?: number) {
+      void call("night_edit_prop", { cid, q: question, opts: options ?? null, new_line: line ?? null });
+    },
+    removeProp(cid: ID) {
+      mutate((db) => {
+        db.challenges = db.challenges.filter((x) => x.id !== cid);
+      });
+      void call("night_remove_prop", { cid });
+    },
+    lockProps(cids: ID[]) {
+      if (cids.length) void call("night_lock", { cids });
+    },
+    settleProps(items: { cid: ID; optionId: ID; value?: number }[]) {
+      if (items.length) void call("night_settle", { items });
+    },
+    resettleProp(cid: ID, optionId: ID) {
+      void call("night_resettle", { cid, oid: optionId });
+    },
+    disputeProp(cid: ID, reason: string) {
+      void call("night_dispute", { cid, reason });
+    },
+    endNight(n: Night, champion: NonNullable<Night["champion"]> & { name: string }) {
+      mutate((db) => {
+        const x = db.nights?.find((y) => y.id === n.id);
+        if (x) Object.assign(x, structuredClone(n), { status: "ended", endedAt: Date.now(), champion });
+      });
+      void call("end_night", { nid: n.id, champ: champion, ndata: nightData(n) });
     },
   };
 }

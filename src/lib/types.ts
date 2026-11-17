@@ -17,7 +17,7 @@ export type Category =
 
 export type Format = "over_under" | "yes_no" | "pick_one" | "exact";
 
-export type Visibility = "friends" | "link" | "group" | "public";
+export type Visibility = "friends" | "link" | "group" | "public" | "night";
 
 export type Verifier = "creator" | "group" | "vote" | "source";
 
@@ -129,6 +129,9 @@ export interface Challenge {
   live?: LiveState;
   result?: Result;
   vote?: Vote;
+  nightId?: ID; // Game Night prop
+  gameId?: ID; // which game in the night (none = night-wide prop)
+  prop?: PropMeta;
   lockedAt?: number; // when joining closed (system message posted)
   voteAt?: number; // participant-vote challenges: when voting opens automatically
   likes: ID[];
@@ -180,6 +183,108 @@ export interface Group {
   createdAt: number;
 }
 
+// ---------------- Game Night ----------------
+
+/** How a prop settles itself from the scoreboard. */
+export type Resolver =
+  | { type: "round_max"; metric: string; scope: "player" | "side" } // most X this round
+  | { type: "round_pick"; field: string } // host picks a player each round (e.g. who went out first)
+  | { type: "round_flag"; metric: string; scope: "side" } // which side(s) had the flag (e.g. set)
+  | { type: "round_any"; metric: string } // did anyone… this round (yes/no)
+  | { type: "made_bid"; sideId: string } // spades: did this side make its bid (yes/no)
+  | { type: "ou"; subject: string; metric: string; line: number; scope: "round" | "game" } // over/under
+  | { type: "event_first"; event: string } // first player to… (monopoly)
+  | { type: "event_any"; event: string } // will anyone… during the game (yes/no)
+  | { type: "final_max"; metric: string } // most X at the end of the game
+  | { type: "game_winner" } // which side wins the game
+  | { type: "night_team" }; // which night team wins the night
+
+export interface PropMeta {
+  kind: "game" | "wild";
+  key?: string; // template prop key
+  resolver?: Resolver; // absent = host settles by hand
+  round?: number; // round props settle when that round is entered
+  repeat?: boolean; // re-offer every round
+  pending?: boolean; // proposed by a guest of the night, waiting for host approval
+  allowSelf?: boolean;
+}
+
+export interface NightPlayer {
+  id: ID;
+  name: string;
+  userId?: ID; // app user; guests have none
+  teamId?: ID;
+}
+
+export interface NightTeam {
+  id: ID;
+  name: string;
+  emoji: string;
+}
+
+/** A side in one game: a spades partnership, or one player in Uno/Monopoly. */
+export interface GameSide {
+  id: ID;
+  name: string;
+  playerIds: ID[];
+}
+
+export interface GameRound {
+  n: number;
+  status: "open" | "locked" | "final";
+  /** per player numbers, e.g. { p1: { bid: 3, books: 4 } } */
+  values: Record<ID, Record<string, number>>;
+  /** single picks for the round, e.g. { winner: "p2", caught: "none" } */
+  picks: Record<string, string>;
+  /** yes/no facts for the round, e.g. { wd4: 1 } */
+  flags: Record<string, number>;
+}
+
+export interface GameEvent {
+  type: string; // bankrupt | hotel | boardwalk
+  playerId: ID;
+  at: number;
+}
+
+export interface NightGame {
+  id: ID;
+  templateId: string;
+  name: string;
+  emoji: string;
+  status: "live" | "done";
+  startedAt: number;
+  endedAt?: number;
+  sides: GameSide[];
+  rounds: GameRound[];
+  events: GameEvent[];
+  totals: Record<ID, Record<string, number>>; // per player running totals (e.g. properties owned)
+  winnerSideId?: ID;
+}
+
+export interface CustomTemplate {
+  id: string;
+  name: string;
+  emoji: string;
+  metric: string; // what gets counted each round, e.g. "points"
+  teams: boolean;
+}
+
+export interface Night {
+  id: ID;
+  hostId: ID;
+  name: string;
+  createdAt: number;
+  status: "live" | "ended";
+  memberIds: ID[];
+  players: NightPlayer[];
+  teams: NightTeam[];
+  games: NightGame[];
+  currentGameId?: ID;
+  customTemplates?: CustomTemplate[];
+  endedAt?: number;
+  champion?: { userId: ID; score: number; awards: { key: string; label: string; emoji: string; who: string; detail: string }[] };
+}
+
 export interface DB {
   version: number;
   meId: ID;
@@ -190,6 +295,7 @@ export interface DB {
   notifications: Notification[];
   groups: Group[];
   lastRead: Record<ID, number>; // challengeId -> timestamp the room was last opened
+  nights?: Night[];
   // per-account copies of `following` / `lastRead`, swapped in when the signed-in user changes
   saved?: Record<ID, { following: ID[]; lastRead: Record<ID, number> }>;
 }

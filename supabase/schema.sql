@@ -57,6 +57,23 @@ create table if not exists public.group_members (
   primary key (group_id, user_id)
 );
 
+create table if not exists public.nights (
+  id uuid primary key default gen_random_uuid(),
+  host_id uuid not null references public.profiles (id) on delete cascade,
+  name text not null check (char_length(name) between 1 and 60),
+  created_at timestamptz not null default now(),
+  status text not null default 'live' check (status in ('live', 'ended')),
+  data jsonb not null default '{}', -- players (incl. guests), teams, games, rounds, scores
+  ended_at timestamptz,
+  champion jsonb
+);
+
+create table if not exists public.night_members (
+  night_id uuid not null references public.nights (id) on delete cascade,
+  user_id uuid not null references public.profiles (id) on delete cascade,
+  primary key (night_id, user_id)
+);
+
 create table if not exists public.challenges (
   id uuid primary key default gen_random_uuid(),
   creator_id uuid not null references public.profiles (id) on delete cascade,
@@ -88,6 +105,15 @@ create table if not exists public.challenges (
   locked_at timestamptz,
   shares int not null default 0
 );
+
+-- Game Night props live on challenges too
+alter table public.challenges add column if not exists night_id uuid references public.nights (id) on delete cascade;
+alter table public.challenges add column if not exists game_id text;
+alter table public.challenges add column if not exists prop jsonb;
+alter table public.challenges drop constraint if exists challenges_visibility_check;
+alter table public.challenges add constraint challenges_visibility_check check (visibility in ('friends', 'link', 'group', 'public', 'night'));
+create index if not exists challenges_night on public.challenges (night_id);
+create index if not exists night_members_user on public.night_members (user_id);
 
 create table if not exists public.entries (
   challenge_id uuid not null references public.challenges (id) on delete cascade,
@@ -158,6 +184,7 @@ create or replace function tyche_private.cfg(k text) returns numeric language sq
     when 'disputes_to_freeze' then 2
     when 'vote_quorum' then 3
     when 'trial_days' then 7
+    when 'wild_stake' then 20
   end
 $$;
 
@@ -214,6 +241,7 @@ create or replace function tyche_private.can_see(c public.challenges, uid uuid) 
     or c.visibility in ('public', 'link')
     or (c.visibility = 'group' and exists (select 1 from public.group_members m where m.group_id = c.group_id and m.user_id = uid))
     or (c.visibility = 'friends' and exists (select 1 from public.follows f where f.follower = uid and f.followee = c.creator_id))
+    or (c.visibility = 'night' and exists (select 1 from public.night_members m where m.night_id = c.night_id and m.user_id = uid))
 $$;
 
 create or replace function tyche_private.sys(cid uuid, icon text, body text) returns void language sql as $$
@@ -559,6 +587,7 @@ begin
         'closesAt', tyche_private.ms(c.closes_at), 'startsAt', tyche_private.ms(c.starts_at), 'voteAt', tyche_private.ms(c.vote_at),
         'resolution', c.resolution, 'tieRule', c.tie_rule, 'verifier', c.verifier, 'status', c.status,
         'live', c.live, 'result', c.result, 'vote', c.vote, 'lockedAt', tyche_private.ms(c.locked_at),
+        'nightId', c.night_id, 'gameId', c.game_id, 'prop', c.prop,
         'likes', coalesce((select jsonb_agg(l.user_id) from likes l where l.challenge_id = c.id), '[]'),
         'shares', c.shares)) order by c.created_at desc)
       from challenges c where tyche_private.can_see(c, uid)), '[]'),
@@ -577,7 +606,12 @@ begin
         'id', g.id, 'ownerId', g.owner_id, 'name', g.name, 'emoji', g.emoji, 'createdAt', tyche_private.ms(g.created_at),
         'memberIds', (select jsonb_agg(gm.user_id) from group_members gm where gm.group_id = g.id)) order by g.created_at desc)
       from groups g where exists (select 1 from group_members gm where gm.group_id = g.id and gm.user_id = uid)), '[]'),
-    'lastRead', coalesce((select jsonb_object_agg(challenge_id, tyche_private.ms(at)) from room_reads where user_id = uid), '{}')
+    'lastRead', coalesce((select jsonb_object_agg(challenge_id, tyche_private.ms(at)) from room_reads where user_id = uid), '{}'),
+    'nights', coalesce((select jsonb_agg(jsonb_strip_nulls(jsonb_build_object(
+        'id', n.id, 'hostId', n.host_id, 'name', n.name, 'createdAt', tyche_private.ms(n.created_at), 'status', n.status,
+        'endedAt', tyche_private.ms(n.ended_at), 'champion', n.champion,
+        'memberIds', (select jsonb_agg(m.user_id) from night_members m where m.night_id = n.id))) || n.data order by n.created_at desc)
+      from nights n where exists (select 1 from night_members m where m.night_id = n.id and m.user_id = uid)), '[]')
   );
 end $$;
 
@@ -632,26 +666,39 @@ declare
   stake int := coalesce((p ->> 'stake')::int, 0);
   bal int;
   inv text;
+  nid uuid := nullif(p ->> 'nightId', '')::uuid;
+  n nights;
+  prop_meta jsonb := p -> 'prop';
 begin
-  if not tyche_private.is_plus(uid)
-     and (select count(*) from challenges where creator_id = uid and status <> 'settled') >= tyche_private.cfg('open_limit') then
+  if nid is not null then
+    select * into n from nights where id = nid;
+    if not found or not exists (select 1 from night_members where night_id = nid and user_id = uid) then raise exception 'You are not in that Game Night'; end if;
+    if n.status <> 'live' then raise exception 'This Game Night has ended'; end if;
+    -- props from anyone but the host wait for approval
+    prop_meta := coalesce(prop_meta, '{}'::jsonb) || jsonb_build_object('pending', n.host_id <> uid);
+  end if;
+  if nid is null and not tyche_private.is_plus(uid)
+     and (select count(*) from challenges where creator_id = uid and status <> 'settled' and night_id is null) >= tyche_private.cfg('open_limit') then
     raise exception 'Free accounts can host % open challenges at a time', tyche_private.cfg('open_limit');
   end if;
   if jsonb_array_length(coalesce(p -> 'options', '[]')) < 2 then raise exception 'Add at least two options'; end if;
-  if p ->> 'visibility' = 'group' and not exists (select 1 from group_members where group_id = (p ->> 'groupId')::uuid and user_id = uid) then
+  if nid is null and p ->> 'visibility' = 'group' and not exists (select 1 from group_members where group_id = (p ->> 'groupId')::uuid and user_id = uid) then
     raise exception 'You are not in that group';
   end if;
 
   insert into challenges (id, creator_id, category, question, title, description, media, format, line, unit, options, stake_mode, odds,
-    forfeit, visibility, group_id, closes_at, starts_at, vote_at, resolution, tie_rule, verifier)
+    forfeit, visibility, group_id, closes_at, starts_at, vote_at, resolution, tie_rule, verifier, night_id, game_id, prop)
   values (cid, uid, coalesce(p ->> 'category', 'Custom'), trim(p ->> 'question'), nullif(trim(p ->> 'title'), ''), nullif(trim(p ->> 'description'), ''),
     nullif(p ->> 'media', ''), p ->> 'format', (p ->> 'line')::numeric, nullif(p ->> 'unit', ''), p -> 'options',
     coalesce(p ->> 'stakeMode', 'even'), case when p ->> 'stakeMode' = 'odds' then p -> 'odds' end, nullif(trim(p ->> 'forfeit'), ''),
-    coalesce(p ->> 'visibility', 'friends'), case when p ->> 'visibility' = 'group' then (p ->> 'groupId')::uuid end,
+    case when nid is not null then 'night' else coalesce(p ->> 'visibility', 'friends') end,
+    case when nid is null and p ->> 'visibility' = 'group' then (p ->> 'groupId')::uuid end,
     to_timestamp((p ->> 'closesAt')::bigint / 1000.0),
     case when p ? 'startsAt' and p ->> 'startsAt' is not null then to_timestamp((p ->> 'startsAt')::bigint / 1000.0) end,
     case when p ? 'voteAt' and p ->> 'voteAt' is not null then to_timestamp((p ->> 'voteAt')::bigint / 1000.0) end,
-    coalesce(p ->> 'resolution', ''), coalesce(p ->> 'tieRule', 'refund'), coalesce(p ->> 'verifier', 'group'))
+    coalesce(p ->> 'resolution', ''), coalesce(p ->> 'tieRule', 'refund'),
+    case when nid is not null then 'creator' else coalesce(p ->> 'verifier', 'group') end,
+    nid, nullif(p ->> 'gameId', ''), prop_meta)
   returning * into c;
 
   perform tyche_private.sys(cid, '✨', format('%s created the challenge%s', tyche_private.first_name(uid),
@@ -663,7 +710,8 @@ begin
     if c.stake_mode = 'bragging' then stake := 0;
     else
       select points into bal from profiles where id = uid for update;
-      if stake < tyche_private.cfg('min_stake') then raise exception 'Minimum stake is % pts', tyche_private.cfg('min_stake'); end if;
+      if c.prop ->> 'kind' = 'wild' then stake := tyche_private.cfg('wild_stake')::int; end if;
+      if c.prop ->> 'kind' is distinct from 'wild' and stake < tyche_private.cfg('min_stake') then raise exception 'Minimum stake is % pts', tyche_private.cfg('min_stake'); end if;
       if stake > bal then raise exception 'Not enough points'; end if;
       update profiles set points = points - stake where id = uid;
     end if;
@@ -694,12 +742,14 @@ begin
   if c.status <> 'open' or c.closes_at <= now() then raise exception 'Joining is closed'; end if;
   if not tyche_private.has_option(c, oid) then raise exception 'Unknown option'; end if;
   if tyche_private.is_self(c, oid, uid) then raise exception 'You can’t bet on yourself'; end if;
+  if coalesce((c.prop ->> 'pending')::boolean, false) then raise exception 'Waiting for the host to approve this prop'; end if;
+  if c.prop ->> 'kind' = 'wild' and c.stake_mode <> 'bragging' then stake := tyche_private.cfg('wild_stake')::int; end if;
   select * into prev from entries where challenge_id = cid and user_id = uid;
   select points into bal from profiles where id = uid for update;
   bal := bal + coalesce(prev.points, 0);
   if c.stake_mode = 'bragging' then stake := 0;
   else
-    if stake < tyche_private.cfg('min_stake') then raise exception 'Minimum stake is % pts', tyche_private.cfg('min_stake'); end if;
+    if c.prop ->> 'kind' is distinct from 'wild' and stake < tyche_private.cfg('min_stake') then raise exception 'Minimum stake is % pts', tyche_private.cfg('min_stake'); end if;
     if stake > bal then raise exception 'Not enough points'; end if;
   end if;
   update profiles set points = bal - stake where id = uid;
@@ -972,6 +1022,172 @@ create or replace function public.tick() returns void language sql security defi
   select tyche_private.tick()
 $$;
 
+-- ============================================================ Game Night ====
+-- Host-controlled game nights. The app computes scores and which props each
+-- round decides; the server checks the caller is the host and does payouts.
+
+create or replace function tyche_private.night_host(nid uuid) returns public.nights language plpgsql as $$
+declare n public.nights;
+begin
+  select * into n from public.nights where id = nid for update;
+  if not found then raise exception 'Game Night not found'; end if;
+  if n.host_id <> auth.uid() then raise exception 'Only the host can do that'; end if;
+  return n;
+end $$;
+
+create or replace function tyche_private.prop_host(cid uuid) returns public.challenges language plpgsql as $$
+declare c public.challenges := tyche_private.lock(cid);
+begin
+  if c.night_id is null then raise exception 'Not a Game Night prop'; end if;
+  perform tyche_private.night_host(c.night_id);
+  return c;
+end $$;
+
+-- data never carries the night's own columns
+create or replace function tyche_private.clean_night_data(d jsonb) returns jsonb language sql immutable as $$
+  select coalesce(d, '{}'::jsonb) - 'id' - 'hostId' - 'name' - 'createdAt' - 'status' - 'endedAt' - 'champion' - 'memberIds'
+$$;
+
+create or replace function public.create_night(nid uuid, nname text, ndata jsonb, members uuid[]) returns uuid language plpgsql security definer set search_path = public as $$
+declare uid uuid := tyche_private.me(); m uuid;
+begin
+  insert into nights (id, host_id, name, data) values (coalesce(nid, gen_random_uuid()), uid, left(trim(nname), 60), tyche_private.clean_night_data(ndata)) returning id into nid;
+  insert into night_members (night_id, user_id) values (nid, uid);
+  foreach m in array coalesce(members, '{}') loop
+    if m <> uid then
+      insert into night_members (night_id, user_id) values (nid, m) on conflict do nothing;
+      perform tyche_private.notify(m, 'invite', format('invited you to Game Night: %s 🎲', trim(nname)), null, uid);
+    end if;
+  end loop;
+  return nid;
+end $$;
+
+create or replace function public.update_night(nid uuid, ndata jsonb) returns void language plpgsql security definer set search_path = public as $$
+declare n nights := tyche_private.night_host(nid);
+begin
+  if n.status <> 'live' then raise exception 'This Game Night has ended'; end if;
+  update nights set data = tyche_private.clean_night_data(ndata) where id = nid;
+end $$;
+
+create or replace function public.night_invite(nid uuid, members uuid[]) returns void language plpgsql security definer set search_path = public as $$
+declare n nights := tyche_private.night_host(nid); m uuid;
+begin
+  foreach m in array coalesce(members, '{}') loop
+    insert into night_members (night_id, user_id) values (nid, m) on conflict do nothing;
+    if found then perform tyche_private.notify(m, 'invite', format('invited you to Game Night: %s 🎲', n.name), null, n.host_id); end if;
+  end loop;
+end $$;
+
+create or replace function public.night_approve_prop(cid uuid) returns void language plpgsql security definer set search_path = public as $$
+declare c challenges := tyche_private.prop_host(cid);
+begin
+  update challenges set prop = coalesce(prop, '{}') || '{"pending": false}' where id = cid;
+  perform tyche_private.sys(cid, '✅', 'Host approved this prop — picks are open');
+  if c.creator_id <> auth.uid() then perform tyche_private.notify(c.creator_id, 'confirmed', format('approved your prop: “%s”', c.question), cid, auth.uid()); end if;
+end $$;
+
+create or replace function public.night_edit_prop(cid uuid, q text, opts jsonb default null, new_line numeric default null) returns void language plpgsql security definer set search_path = public as $$
+declare c challenges := tyche_private.prop_host(cid);
+begin
+  if c.status = 'settled' then raise exception 'Already settled'; end if;
+  if (opts is not null or new_line is not null) and exists (select 1 from entries where challenge_id = cid) then
+    raise exception 'People already picked — you can only change the wording';
+  end if;
+  update challenges set
+    question = coalesce(nullif(trim(q), ''), question),
+    options = coalesce(opts, options),
+    line = coalesce(new_line, line),
+    prop = case when new_line is not null and prop ? 'resolver' and prop -> 'resolver' ? 'line'
+                then jsonb_set(prop, '{resolver,line}', to_jsonb(new_line)) else prop end
+  where id = cid;
+  perform tyche_private.sys(cid, '✏️', 'Host edited this prop');
+end $$;
+
+create or replace function public.night_remove_prop(cid uuid) returns void language plpgsql security definer set search_path = public as $$
+declare c challenges := tyche_private.prop_host(cid); e record;
+begin
+  if c.status = 'settled' then raise exception 'Already settled — re-settle it instead'; end if;
+  for e in select * from entries where challenge_id = cid loop
+    update profiles set points = points + e.points where id = e.user_id;
+  end loop;
+  delete from challenges where id = cid;
+end $$;
+
+create or replace function public.night_lock(cids uuid[]) returns void language plpgsql security definer set search_path = public as $$
+declare cid uuid; c challenges;
+begin
+  foreach cid in array coalesce(cids, '{}') loop
+    c := tyche_private.prop_host(cid);
+    if c.status = 'open' and c.closes_at > now() then
+      update challenges set closes_at = now(), locked_at = now() where id = cid;
+      perform tyche_private.sys(cid, '🔒', 'Picks locked — cards are being dealt');
+    end if;
+  end loop;
+end $$;
+
+-- items: [{ "cid": "...", "optionId": "...", "value": 6 }]
+create or replace function public.night_settle(items jsonb) returns int language plpgsql security definer set search_path = public as $$
+declare it jsonb; c challenges; oid text; n int := 0;
+begin
+  for it in select * from jsonb_array_elements(coalesce(items, '[]')) loop
+    c := tyche_private.prop_host((it ->> 'cid')::uuid);
+    if c.status = 'settled' then continue; end if;
+    oid := it ->> 'optionId';
+    if oid <> '__tie' and not tyche_private.has_option(c, oid) then raise exception 'Unknown option % for “%”', oid, c.question; end if;
+    update challenges set status = 'review', closes_at = least(closes_at, now()),
+      result = jsonb_strip_nulls(jsonb_build_object('optionId', oid, 'value', (it -> 'value'), 'submittedBy', auth.uid(),
+        'submittedAt', tyche_private.ms(now()), 'confirmations', jsonb_build_array(auth.uid()), 'disputes', '[]'::jsonb))
+    where id = c.id;
+    perform tyche_private.sys(c.id, '🎲', format('Settled from the scoreboard: %s%s', tyche_private.opt_label(c, oid),
+      case when it ? 'value' and it ->> 'value' is not null then format(' (%s)', it ->> 'value') else '' end));
+    perform tyche_private.settle(c.id);
+    n := n + 1;
+  end loop;
+  return n;
+end $$;
+
+-- Host fixes a wrong result: undo payouts, then settle again.
+create or replace function public.night_resettle(cid uuid, oid text) returns void language plpgsql security definer set search_path = public as $$
+declare c challenges := tyche_private.prop_host(cid); e record; net int;
+begin
+  if c.status <> 'settled' then raise exception 'Not settled yet'; end if;
+  if oid <> '__tie' and not tyche_private.has_option(c, oid) then raise exception 'Unknown option'; end if;
+  for e in select * from entries where challenge_id = cid loop
+    net := coalesce((c.result -> 'payouts' ->> e.user_id::text)::int, 0);
+    if net >= 0 then update profiles set points = greatest(0, points - (e.points + net)) where id = e.user_id; end if;
+  end loop;
+  update challenges set status = 'review',
+    result = jsonb_build_object('optionId', oid, 'submittedBy', auth.uid(), 'submittedAt', tyche_private.ms(now()),
+      'confirmations', jsonb_build_array(auth.uid()), 'disputes', '[]'::jsonb)
+  where id = cid;
+  perform tyche_private.sys(cid, '↩️', format('Host re-settled this prop: %s', tyche_private.opt_label(c, oid)));
+  perform tyche_private.settle(cid);
+end $$;
+
+create or replace function public.night_dispute(cid uuid, reason text default '') returns void language plpgsql security definer set search_path = public as $$
+declare uid uuid := tyche_private.me(); c challenges; n nights;
+begin
+  select * into c from challenges where id = cid;
+  if not found or c.night_id is null then raise exception 'Not a Game Night prop'; end if;
+  if not exists (select 1 from night_members where night_id = c.night_id and user_id = uid) then raise exception 'Not in this Game Night'; end if;
+  select * into n from nights where id = c.night_id;
+  perform tyche_private.sys(cid, '⚠️', format('%s disputed this%s', tyche_private.first_name(uid), case when coalesce(trim(reason), '') <> '' then format(': “%s”', left(trim(reason), 140)) else '' end));
+  if n.host_id <> uid then perform tyche_private.notify(n.host_id, 'reply', format('disputed “%s”', c.question), cid, uid); end if;
+end $$;
+
+-- champ: { userId, name, score, awards: [...] }
+create or replace function public.end_night(nid uuid, champ jsonb, ndata jsonb default null) returns void language plpgsql security definer set search_path = public as $$
+declare n nights := tyche_private.night_host(nid); m record;
+begin
+  if n.status = 'ended' then return; end if;
+  update nights set status = 'ended', ended_at = now(), champion = champ,
+    data = case when ndata is null then data else tyche_private.clean_night_data(ndata) end
+  where id = nid;
+  for m in select user_id from night_members where night_id = nid loop
+    perform tyche_private.notify(m.user_id, 'won', format('👑 %s is the champion of %s', coalesce(champ ->> 'name', 'Someone'), n.name), null, nullif(champ ->> 'userId', '')::uuid);
+  end loop;
+end $$;
+
 -- ----------------------------------------------------------- permissions ----
 
 alter table public.profiles enable row level security;
@@ -1030,6 +1246,7 @@ begin
   begin alter publication supabase_realtime add table public.challenges; exception when others then null; end;
   begin alter publication supabase_realtime add table public.entries; exception when others then null; end;
   begin alter publication supabase_realtime add table public.notifications; exception when others then null; end;
+  begin alter publication supabase_realtime add table public.nights; exception when others then null; end;
 end $$;
 
 -- Optional (Phase 2): run transitions every minute even when nobody has the app open.

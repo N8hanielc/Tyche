@@ -8,6 +8,7 @@ import { PILL_CATEGORIES, canSee, heat, myNotifications } from "@/lib/utils";
 import { Avatar, Empty, Logo, Pill, Segmented } from "@/components/ui";
 import { ChallengeCard } from "@/components/challenge/ChallengeCard";
 import { DailyClaimCard } from "@/screens/Plus";
+import { NightBanner } from "@/screens/GameNight";
 
 const PILLS = Object.keys(PILL_CATEGORIES);
 type Feed = "foryou" | "friends" | "live";
@@ -23,7 +24,7 @@ export function HomeScreen() {
     const circle = new Set([...db.following, db.meId]);
     const friendIds = new Set(db.groups.filter((g) => g.memberIds.includes(db.meId)).flatMap((g) => g.memberIds));
     const isFriend = (id: string) => friendIds.has(id) || (circle.has(id) && db.users[id]?.followers < 3000);
-    let l = db.challenges.filter((c) => c.status !== "settled" && canSee(db, c));
+    let l = db.challenges.filter((c) => c.status !== "settled" && !c.nightId && canSee(db, c));
     if (feed === "friends") l = l.filter((c) => isFriend(c.creatorId));
     if (feed === "live") l = l.filter((c) => c.status === "live" || c.status === "review" || c.status === "vote");
     if (pill === "Friends") l = l.filter((c) => isFriend(c.creatorId));
@@ -75,6 +76,7 @@ export function HomeScreen() {
         </button>
 
         <DailyClaimCard />
+        <NightBanner />
 
         <Segmented
           value={feed}

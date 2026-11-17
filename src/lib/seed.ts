@@ -1,5 +1,6 @@
 import type { Challenge, DB, Entry, Message, Notification, User } from "./types";
 import { HOUR, MIN, buildExact, buildOverUnder, computePayouts } from "./utils";
+import { seedNight } from "./gamenight/seed-night";
 
 const av = (n: number) => `https://i.pravatar.cc/240?img=${n}`;
 
@@ -39,7 +40,7 @@ export function seed(): DB {
   crowdNames.forEach(([u, n, img], i) => users.push(user(`c${i + 1}`, u, n, img, (i * 37) % 360, { followers: 40 + i * 13, following: 80 })));
 
   const db: DB = {
-    version: 2,
+    version: 3,
     meId: ME,
     users: Object.fromEntries(users.map((u) => [u.id, u])),
     following: ["u_marcus", "u_jordan", "u_mya", "u_chris", "u_dani", "u_kev", "u_hoops", "u_sol"],
@@ -262,6 +263,11 @@ export function seed(): DB {
   chat("ch_wings", "u_chris", "my soul left my body at wing 7", 8480);
 
   db.messages = msgs;
+
+  const gn = seedNight(T, ME);
+  db.nights = [gn.night];
+  db.challenges.push(...gn.challenges);
+  db.messages.push(...gn.messages);
 
   const N = (kind: Notification["kind"], text: string, minsAgo: number, actorId?: string, challengeId?: string, read = false): Notification => ({
     id: `n_${kind}_${minsAgo}`, kind, text, at: T - minsAgo * MIN, actorId, challengeId, read,

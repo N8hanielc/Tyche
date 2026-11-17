@@ -18,6 +18,7 @@ import { CreateScreen } from "@/screens/Create";
 import { NotificationsScreen } from "@/screens/Notifications";
 import { LeaderboardScreen } from "@/screens/Leaderboard";
 import { PlusScreen } from "@/screens/Plus";
+import { NewNightScreen, NightScreen } from "@/screens/GameNight";
 
 function Overlay({ s, index }: { s: Screen; index: number }) {
   let node: React.ReactNode = null;
@@ -42,6 +43,12 @@ function Overlay({ s, index }: { s: Screen; index: number }) {
       break;
     case "plus":
       node = <PlusScreen reason={s.reason} />;
+      break;
+    case "night":
+      node = <NightScreen id={s.id} />;
+      break;
+    case "nightNew":
+      node = <NewNightScreen />;
       break;
   }
   return (

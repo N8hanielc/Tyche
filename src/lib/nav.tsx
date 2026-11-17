@@ -13,7 +13,9 @@ export type Screen =
   | { kind: "create"; prefill?: Partial<Draft> }
   | { kind: "group"; id: ID }
   | { kind: "leaderboard" }
-  | { kind: "plus"; reason?: string };
+  | { kind: "plus"; reason?: string }
+  | { kind: "night"; id: ID }
+  | { kind: "nightNew" };
 
 export type Sheet =
   | { kind: "join"; challengeId: ID; optionId?: ID }

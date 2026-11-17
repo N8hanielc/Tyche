@@ -39,7 +39,8 @@ export function RoomScreen({ id }: { id: string }) {
 
   if (!c) return null;
   const creator = db.users[c.creatorId];
-  const isCreator = c.creatorId === db.meId;
+  const isCreator = c.creatorId === db.meId && !c.nightId; // Game Night props are run from the night's scoreboard
+  const night = c.nightId ? db.nights?.find((n) => n.id === c.nightId) : undefined;
   const status = statusLabel(c, now);
   const mine = myEntry(c, db.meId);
   const shown = tab === "activity" ? messages.filter((m) => m.kind === "system") : messages;
@@ -74,7 +75,13 @@ export function RoomScreen({ id }: { id: string }) {
               <StatusDot status={status} />
             </div>
           </div>
-          <CategoryTag>{c.category}</CategoryTag>
+          {night ? (
+            <button onClick={() => nav.push({ kind: "night", id: night.id })} className="rounded-full bg-brand/15 px-2.5 py-1 text-[11px] font-bold uppercase tracking-wider text-lav">
+              🎲 {night.name} ›
+            </button>
+          ) : (
+            <CategoryTag>{c.category}</CategoryTag>
+          )}
           <h1 className="mb-2 mt-1 font-display text-[23px] font-extrabold leading-[1.12] tracking-[-0.02em]">{c.question}</h1>
           {c.description && <p className="mb-3 text-[14px] leading-relaxed text-white/70">{c.description}</p>}
           {c.media && (

@@ -225,6 +225,7 @@ export function canSee(db: DB, c: Challenge) {
   if (c.creatorId === db.meId || c.entries.some((e) => e.userId === db.meId)) return true;
   if (c.visibility === "public" || c.visibility === "link") return true;
   if (c.visibility === "group") return !!db.groups.find((g) => g.id === c.groupId)?.memberIds.includes(db.meId);
+  if (c.visibility === "night") return !!db.nights?.find((n) => n.id === c.nightId)?.memberIds.includes(db.meId);
   return db.following.includes(c.creatorId);
 }
 

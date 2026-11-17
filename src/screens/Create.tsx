@@ -482,7 +482,7 @@ export function CreateScreen({ prefill }: { prefill?: Partial<Draft> }) {
                 ["Format", FORMAT_META[d.format].label + (d.format === "over_under" ? ` · ${d.unit === "time" ? fmtMinutes(d.line) : `${d.line} ${d.unit}`}` : "")],
                 ["Your position", hosting ? "Hosting" : options.find((o) => o.id === d.myOptionId)?.label ?? "—"],
                 ["Stakes", d.stakeMode === "bragging" ? `👑 ${d.forfeit}` : `${d.stake} pts · ${d.stakeMode === "odds" ? "custom odds" : "even pool"}`],
-                ["Who", { friends: "Friends only", link: "Anyone with link", group: db.groups.find((g) => g.id === d.groupId)?.name ?? "Group", public: "Public" }[d.visibility] + (d.invited.length ? ` · ${d.invited.length} invited` : "")],
+                ["Who", ({ friends: "Friends only", link: "Anyone with link", group: db.groups.find((g) => g.id === d.groupId)?.name ?? "Group", public: "Public", night: "Game Night" } as Record<string, string>)[d.visibility] + (d.invited.length ? ` · ${d.invited.length} invited` : "")],
                 ["Closes", d.closesAtExact ? new Date(d.closesAtExact).toLocaleString(undefined, { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : d.closesInMin >= 1440 ? `${Math.round(d.closesInMin / 1440)} day(s)` : fmtMinutes(d.closesInMin)],
                 ["Verified by", { creator: "You", group: "Group confirmation", vote: "Everyone votes (end of night)", source: "Verified source" }[d.verifier]],
               ].map(([k, v]) => (

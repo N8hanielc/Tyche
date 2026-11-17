@@ -57,6 +57,20 @@ src/screens/            Home, Discover, Create, Room, Rooms, Profile, Notificati
 preview/                Offline bundle script used to build the single-file preview
 ```
 
+## Game Night
+
+A private room for a night of family games. Start one from **Rooms → Game Nights → New** (or the banner on Home).
+
+- **Host** creates the room, invites friends who have Tyche, adds guests without the app (Dad, Grandma), and optionally splits everyone into two teams (Mom’s vs Dad’s, Parents vs Kids…).
+- **Games**: Spades, Uno and Monopoly templates come with ready-made props, or the host makes a custom game (name + what you score). Each game shows the round, score, active props, who backed which side, what’s winning now, and what’s settled.
+- **Scores → auto-settle**: after each round the host enters bids/books (Spades), cards drawn and who went out (Uno), or events and property counts (Monopoly). *Final* settles that round’s props and re-opens the repeating ones for the next round. Over/unders on a player (e.g. Dad over 4.5 books) settle the same way.
+- **Props**: anyone can suggest a prop; the host approves, edits, settles by hand, fixes a wrong result (payouts are reversed and redone), or removes it (refunds). Players can dispute; the host gets notified.
+- **Wild Props**: side bets about the table (“Will Dad complain about the rules?”), a flat 20 pts each. Nobody can bet on a Wild Prop about themselves. They count toward the Wild Card award, not the championship.
+- **Board**: champion race (points won ÷ 10 + 5 per correct pick + 5 × best streak), team totals (members’ scores + 20 per game won), awards (most accurate, hot hand, big earner, prop master, Wild Card) and game records. Ending the night settles “Which team wins the night?” and crowns the champion.
+- Self-betting rules carry over: you can back yourself to win, but not to lose (e.g. no UNDER on your own books).
+
+Live mode: Game Night uses the `nights` / `night_members` tables and the `night_*` functions in `supabase/schema.sql`. Re-run that file after updating.
+
 ## Supabase (live mode)
 
 The app connects to Supabase automatically (project URL + publishable key in `src/lib/supabase.ts`; override with `NEXT_PUBLIC_SUPABASE_URL` / `NEXT_PUBLIC_SUPABASE_ANON_KEY`, or set `NEXT_PUBLIC_TYCHE_LOCAL=1` for the offline demo). The single-file preview always runs the offline demo.
