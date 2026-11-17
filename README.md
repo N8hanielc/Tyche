@@ -71,9 +71,44 @@ A private room for a night of family games. Start one from **Rooms → Game Nigh
 
 Live mode: Game Night uses the `nights` / `night_members` tables and the `night_*` functions in `supabase/schema.sql`. Re-run that file after updating.
 
+## Admin panel (`/admin`)
+
+A private control panel at **jointyche.app/admin**, built into this app (same Supabase project, same logins). Desktop and tablet.
+
+- **Overview**: users, daily/monthly active, points in circulation, admin-issued points, verified accounts, advertisers, live campaigns, impressions, clicks, underdelivery, with charts.
+- **Users**: search by name, @username, email or ID; filter by verified, unverified, suspended, restricted, flagged or admins. Each profile shows its balance, points earned and spent, record, recent games, full points history and admin history. Actions: verify / remove verification, adjust points, restrict from games, flag for review, suspend / reactivate.
+- **Points**: issue or deduct points with a reason and a review step. Every change to any balance (stakes, payouts, refunds, daily refills, Tyche+ top-ups, admin adjustments) is written to a permanent ledger.
+- **Advertisers / Campaigns**: create and edit advertisers and campaigns; pause, reactivate or suspend advertisers; pause, resume or cancel campaigns; edit dates; set priority (Normal / High / Urgent). The ad preview uses the app's own ad components.
+- **Performance**: pacing for every campaign (expected vs delivered, daily average, needed per day, estimated completion), with On track / Slightly behind / Underdelivering / Completed / Paused / Expired, filters, and a one-click priority boost.
+- **Ad settings**: banner, sponsored-card and combined frequency limits, saved to the database. They take effect without a redeploy, and you're warned before changes that significantly increase ad frequency.
+- **Activity log**: every sensitive action with admin, target, previous and new value, reason and time. It's append-only: entries can't be edited or deleted, even from the SQL editor.
+- **Team**: grant or remove Admin / Super admin access.
+
+**Roles.** *Admin*: everything above except ad settings and team changes; point adjustments up to 10,000 per action. *Super admin*: also ad settings, admin access, campaign purchase terms, and adjustments up to 1,000,000. Admins can't change their own account, and only super admins can act on another admin's account.
+
+**Security.** All checks run in the database: every `admin_*` function verifies the caller's role before it does anything, and writes the log entry in the same transaction. No service-role key is involved. Roles, the log, the ledger and account status live in the private `tyche_private` schema, which the API can't reach. `/admin` is also served with `noindex`, no-framing and no-store headers (`middleware.ts`).
+
+**Setup (once):**
+1. Supabase → SQL Editor: run `supabase/schema.sql`, then `supabase/billing.sql` (if you use billing), then `supabase/admin.sql`. All three are safe to re-run; re-run `admin.sql` whenever you re-run `schema.sql`.
+2. Make yourself super admin (SQL Editor):
+   ```sql
+   insert into tyche_private.admin_roles (user_id, role)
+   select id, 'super_admin' from public.profiles where username = 'n8haniel'
+   on conflict (user_id) do update set role = 'super_admin';
+   ```
+3. For Google sign-in on the panel, add `https://jointyche.app/admin` under Supabase → Authentication → URL Configuration → Redirect URLs.
+
+**What changes in the app.**
+- Suspended users see a "your account is suspended" screen and can't take any action.
+- Restricted users can browse and chat, but can't create, join, vote on or settle games or Game Nights.
+- Daily/monthly active users are recorded when someone opens the app. Past activity was rebuilt from existing data on the first run.
+- The points ledger starts when `schema.sql` is first re-run. Each existing account gets an opening-balance entry so the ledger totals match balances.
+
+**Not built yet:** in-app reporting of users (flags are set by admins only), and an image slot in ads (ads use a logo, headline, two options and a button).
+
 ## Verified accounts
 
-The purple check next to a name means the account is verified. Only you can set it:
+The purple check next to a name means the account is verified. Set it in **/admin → Users** (recorded in the activity log), or by hand:
 
 - **Supabase → Table Editor → profiles → `verified` column**: tick or untick it on a row.
 - Or SQL: `update profiles set verified = true where username = 'their.username';`
@@ -103,7 +138,8 @@ Campaigns live in **Supabase → Table Editor → `ad_campaigns`**. Add a row pe
 - Caps per user: same company banner 4/day · same company card 2 per 24h · same company across both 5/day · same card 2 per 24h.
 - An impression only counts once the ad is at least half on screen for 1 second. Clicks count once per hour per person.
 - Banner rotates every 20 seconds, preferring a different campaign each time.
-- The numbers live in `tyche_private.cfg` (`ad_…` keys) in `schema.sql`.
+- The defaults live in `tyche_private.cfg_default` (`ad_…` keys) in `schema.sql`. Change them in **/admin → Ad settings**, where they're saved to `tyche_private.settings` and apply without a redeploy.
+- Advertisers can be paused or suspended (none of their ads show), campaigns can be canceled, and campaign **priority** (Normal 1× / High 2× / Urgent 4×) weights which eligible campaign wins a placement. Priority never overrides dates, remaining impressions, even pacing or frequency caps.
 
 ## Supabase (live mode)
 

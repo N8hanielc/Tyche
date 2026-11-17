@@ -26,6 +26,7 @@ declare
   was_plus boolean := tyche_private.is_plus(uid);
   now_plus boolean := plus_state is not null and (plus_state ->> 'renewsAt')::bigint > tyche_private.ms(now());
 begin
+  perform tyche_private.pts('plus_topup');   -- tags the top-up in the points ledger
   update profiles set
     plus = plus_state,
     trial_used = trial_used or plus_state is not null,
@@ -47,6 +48,8 @@ grant execute on function public.apply_billing(uuid, jsonb) to service_role;
 -- apply_billing runs as the caller (service role), so it needs Tyche's internal helpers
 grant usage on schema tyche_private to service_role;
 grant execute on all functions in schema tyche_private to service_role;
+-- cfg() reads admin overrides from tyche_private.settings
+grant select on tyche_private.settings to service_role;
 
 -- The beta self-serve subscription functions are disabled for app users.
 revoke execute on function public.subscribe_plus(text) from public, anon, authenticated;

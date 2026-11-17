@@ -19,6 +19,7 @@ import { REMOTE, supabase } from "@/lib/supabase";
 import { useAuth } from "./auth";
 import { makeRemoteActions, toastError } from "./remote-actions";
 import { LogoMark } from "@/components/ui";
+import { LEGAL } from "./legal";
 import { DAILY, MIN_STAKE, TRIAL_DAYS, claimState, isPlus } from "./plus";
 import { computePayouts, fmtLine, fmtMinutes, isCrowd, isSelf, totalPool, uid, winnerFromValue } from "./utils";
 
@@ -854,6 +855,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const { session, signOut } = useAuth();
   const userId = session?.userId;
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [suspended, setSuspended] = useState(false);
 
   // ---------- local (offline demo) ----------
   useEffect(() => {
@@ -898,8 +900,14 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         if (error) {
           toastError(error.message);
           setLoadError(error.message);
+        } else if (data && (data as { suspended?: boolean }).suspended) {
+          // account suspended by a Tyche admin: the server sends no data, only this flag
+          setLoadError(null);
+          setSuspended(true);
+          setDb(null);
         } else if (data) {
           setLoadError(null);
+          setSuspended(false);
           setDb(data as DB);
         }
       } while (again.current);
@@ -913,6 +921,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (!REMOTE || !supabase) return;
+    setSuspended(false);
     if (!userId) {
       // signed out: decorative sample data for the welcome screen
       setDb(seed());
@@ -969,6 +978,20 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     [mutate, later, reload],
   );
 
+  if (REMOTE && userId && suspended)
+    return (
+      <div className="grid min-h-dvh place-items-center bg-ink px-8 text-center">
+        <div className="max-w-xs">
+          <LogoMark size={56} className="mx-auto mb-5" />
+          <div className="mb-2 font-display text-xl font-bold">Your account is suspended</div>
+          <p className="mb-6 text-sm text-muted">You can’t use Tyche with this account right now. If you think this is a mistake, contact {LEGAL.contactEmail}.</p>
+          <div className="flex justify-center gap-2">
+            <button onClick={() => void reload()} className="rounded-2xl bg-surface px-5 py-3 text-sm font-semibold">Check again</button>
+            <button onClick={signOut} className="rounded-2xl bg-brand px-5 py-3 text-sm font-semibold">Sign out</button>
+          </div>
+        </div>
+      </div>
+    );
   if (!db && REMOTE && userId && loadError)
     return (
       <div className="grid min-h-dvh place-items-center bg-ink px-8 text-center">
