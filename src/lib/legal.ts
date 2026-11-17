@@ -2,7 +2,7 @@
 export const LEGAL = {
   company: "Tyche",
   site: "jointyche.app",
-  contactEmail: "support@jointyche.app",
+  contactEmail: "tychegambling@gmail.com",
   governingLaw: "the State of Georgia, USA",
   updated: "November 17, 2026",
 };
