@@ -10,7 +10,7 @@ import { cx, isCrowd } from "@/lib/utils";
 import type { User } from "@/lib/types";
 import { supabase } from "@/lib/supabase";
 import { uploadImage } from "@/lib/upload";
-import { Avatar, BottomSheet, Button, Logo } from "@/components/ui";
+import { Avatar, BottomSheet, Button, Logo, Verified } from "@/components/ui";
 
 type View = "welcome" | "signin" | "signup";
 
@@ -481,7 +481,7 @@ function SignUp({ go }: { go: (v: View) => void }) {
                 <div key={u.id} className="flex items-center gap-3 rounded-2xl px-1 py-2">
                   <Avatar user={u} size={44} />
                   <div className="min-w-0 flex-1">
-                    <div className="truncate text-[15px] font-semibold">{u.name}</div>
+                    <div className="flex min-w-0 items-center gap-1 text-[15px] font-semibold"><span className="truncate">{u.name}</span><Verified user={u} /></div>
                     <div className="truncate text-[13px] text-muted">
                       @{u.username} · {u.followers.toLocaleString()} followers
                     </div>

@@ -6,7 +6,7 @@ import { useStore } from "@/lib/store";
 import { useNav } from "@/lib/nav";
 import type { Challenge } from "@/lib/types";
 import { cx, estimateReturn, fmtLine, isSelf, multiplier, totalPool } from "@/lib/utils";
-import { Avatar, BottomSheet, Button, Logo } from "@/components/ui";
+import { Avatar, BottomSheet, Button, Logo, Verified } from "@/components/ui";
 import { WILD_STAKE } from "@/lib/gamenight/templates";
 import { CARD_THEMES, DAILY, MIN_STAKE, claimState, daysToMinimum, isPlus, type CardTheme } from "@/lib/plus";
 import { Lock } from "lucide-react";
@@ -188,7 +188,7 @@ export function ShareCard({ c, theme }: { c: Challenge; theme?: CardTheme }) {
       <div className="mb-5 flex items-center gap-2.5">
         <Avatar user={creator} size={30} />
         <div className="text-[13px] leading-tight">
-          <div className="font-semibold">@{creator?.username}</div>
+          <div className="flex items-center gap-1 font-semibold">@{creator?.username} <Verified user={creator} /></div>
           <div className="text-white/60">
             {pick ? `took ${pick.label}${c.line != null ? ` ${fmtLine(c)}` : ""}` : "set the line"}
             {creatorEntry?.points ? ` · ${creatorEntry.points} pts` : ""}

@@ -6,7 +6,7 @@ import { useStore } from "@/lib/store";
 import { useNav } from "@/lib/nav";
 import { cx } from "@/lib/utils";
 import type { User } from "@/lib/types";
-import { Avatar, Segmented, TopBar } from "@/components/ui";
+import { Avatar, Segmented, TopBar, Verified } from "@/components/ui";
 
 type Tab = "followers" | "following";
 
@@ -69,7 +69,7 @@ export function FollowsScreen({ tab: initial }: { tab: Tab }) {
                 <button onClick={() => nav.push({ kind: "user", id: u.id })} className="flex min-w-0 flex-1 items-center gap-3 text-left">
                   <Avatar user={u} size={46} />
                   <div className="min-w-0">
-                    <div className="truncate text-[15px] font-semibold">{u.name}</div>
+                    <div className="flex min-w-0 items-center gap-1 text-[15px] font-semibold"><span className="truncate">{u.name}</span><Verified user={u} /></div>
                     <div className="truncate text-[13px] text-muted">
                       @{u.username}
                       {tab === "following" && followsMe && <span className="ml-1.5 rounded-md bg-surface px-1.5 py-0.5 text-[11px] text-white/70">Follows you</span>}

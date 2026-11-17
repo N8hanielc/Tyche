@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useStore } from "@/lib/store";
 import { useNav } from "@/lib/nav";
 import { cx, isCrowd, userRecord } from "@/lib/utils";
-import { Avatar, Segmented, TopBar } from "@/components/ui";
+import { Avatar, Segmented, TopBar, Verified } from "@/components/ui";
 
 export function LeaderboardScreen() {
   const { db } = useStore();
@@ -30,7 +30,7 @@ export function LeaderboardScreen() {
             return (
               <button key={row.u.id} onClick={() => nav.push({ kind: "user", id: row.u.id })} className="flex flex-col items-center">
                 <Avatar user={row.u} size={i === 0 ? 72 : 56} ring={i === 0} />
-                <div className="mt-2 w-full truncate text-center text-[13px] font-semibold">{row.u.name.split(" ")[0]}</div>
+                <div className="mt-2 flex w-full items-center justify-center gap-1 text-[13px] font-semibold"><span className="truncate">{row.u.name.split(" ")[0]}</span><Verified user={row.u} size={12} /></div>
                 <div className="text-[11px] text-muted tabular">{row.r.wins}W · {row.r.pct}%</div>
                 <div
                   className={cx(
@@ -50,7 +50,7 @@ export function LeaderboardScreen() {
               <span className="w-6 font-display font-extrabold text-dim tabular">{i + 4}</span>
               <Avatar user={u} size={36} />
               <div className="min-w-0 flex-1">
-                <div className="truncate text-[14px] font-semibold">{u.id === db.meId ? "You" : u.name}</div>
+                <div className="flex min-w-0 items-center gap-1 text-[14px] font-semibold"><span className="truncate">{u.id === db.meId ? "You" : u.name}</span><Verified user={u} size={13} /></div>
                 <div className="text-[12px] text-muted">@{u.username}</div>
               </div>
               <div className="text-right text-[13px] tabular">

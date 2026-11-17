@@ -6,7 +6,7 @@ import { useStore, useNow } from "@/lib/store";
 import { useNav } from "@/lib/nav";
 import type { Challenge } from "@/lib/types";
 import { CATEGORIES, CATEGORY_EMOJI, canSee, clock, heat, totalPool, userRecord, isCrowd } from "@/lib/utils";
-import { Avatar, CategoryTag, Empty, Pill } from "@/components/ui";
+import { Avatar, CategoryTag, Empty, Pill, Verified } from "@/components/ui";
 import { ChallengeCard } from "@/components/challenge/ChallengeCard";
 
 function MiniCard({ c, live }: { c: Challenge; live?: boolean }) {
@@ -30,6 +30,7 @@ function MiniCard({ c, live }: { c: Challenge; live?: boolean }) {
       <div className="mt-auto flex items-center gap-2 text-[12px] text-muted">
         <Avatar user={creator} size={20} />
         <span className="truncate">@{creator?.username}</span>
+        <Verified user={creator} size={12} />
         <span className="ml-auto shrink-0 font-semibold text-white tabular">{live && c.live?.startedAt ? clock(now - c.live.startedAt) : `${c.entries.length} in`}</span>
       </div>
     </button>
@@ -118,7 +119,7 @@ export function DiscoverScreen() {
                   <button key={u.id} onClick={() => nav.push({ kind: "user", id: u.id })} className="flex w-full items-center gap-3 rounded-2xl p-2 text-left hover:bg-card">
                     <Avatar user={u} size={40} />
                     <div className="min-w-0 flex-1">
-                      <div className="font-semibold">{u.name}</div>
+                      <div className="flex items-center gap-1 font-semibold">{u.name} <Verified user={u} /></div>
                       <div className="text-[13px] text-muted">@{u.username}</div>
                     </div>
                     <ChevronRight size={18} className="text-dim" />

@@ -34,6 +34,8 @@ create table if not exists public.profiles (
 
 -- added for Google/Apple sign-in: false until the user confirms their profile
 alter table public.profiles add column if not exists onboarded boolean not null default true;
+-- Verified badge. Only you can set it (Supabase Table Editor or SQL); app users can't change it.
+alter table public.profiles add column if not exists verified boolean not null default false;
 
 create table if not exists public.follows (
   follower uuid not null references public.profiles (id) on delete cascade,
@@ -585,7 +587,7 @@ begin
         'following', (select count(*) from follows f where f.follower = p.id),
         'baseWins', p.base_wins, 'baseLosses', p.base_losses, 'points', p.points, 'badges', to_jsonb(p.badges),
         'plus', p.plus, 'lastClaimAt', tyche_private.ms(p.last_claim_at), 'claimStreak', p.claim_streak,
-        'trialUsed', p.trial_used, 'cardTheme', p.card_theme, 'onboarded', p.onboarded)))
+        'trialUsed', p.trial_used, 'cardTheme', p.card_theme, 'onboarded', p.onboarded, 'verified', p.verified)))
       from profiles p), '{}'),
     'following', coalesce((select jsonb_agg(followee) from follows where follower = uid), '[]'),
     'followerIds', coalesce((select jsonb_agg(follower order by created_at desc) from follows where followee = uid), '[]'),
@@ -633,7 +635,7 @@ $$;
 
 create or replace function public.suggested_profiles() returns jsonb language sql stable security definer set search_path = public as $$
   select coalesce(jsonb_agg(x), '[]') from (
-    select jsonb_strip_nulls(jsonb_build_object('id', p.id, 'username', p.username, 'name', p.name, 'avatar', p.avatar, 'hue', p.hue,
+    select jsonb_strip_nulls(jsonb_build_object('id', p.id, 'username', p.username, 'name', p.name, 'avatar', p.avatar, 'hue', p.hue, 'verified', p.verified,
       'followers', (select count(*) from follows f where f.followee = p.id), 'following', 0, 'baseWins', 0, 'baseLosses', 0, 'points', 0)) x
     from profiles p order by (select count(*) from follows f where f.followee = p.id) desc, p.created_at desc limit 12) s
 $$;
@@ -649,6 +651,7 @@ begin
   if p ? 'name' and length(trim(p ->> 'name')) between 1 and 1 then raise exception 'Name is too short'; end if;
   update profiles set
     username = case when u <> '' then u else username end,
+    verified = verified and (u = '' or u = username), -- a new username has to be re-verified
     name = coalesce(nullif(left(trim(p ->> 'name'), 60), ''), name),
     bio = case when p ? 'bio' then nullif(left(trim(p ->> 'bio'), 160), '') else bio end,
     avatar = case when p ? 'avatar' then nullif(p ->> 'avatar', '') else avatar end

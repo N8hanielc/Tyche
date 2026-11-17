@@ -5,7 +5,7 @@ import type { Challenge, Option } from "@/lib/types";
 import { useStore, useNow } from "@/lib/store";
 import { useNav } from "@/lib/nav";
 import { ago, countdown, cx, myEntry, statusLabel, totalPool, CATEGORY_EMOJI } from "@/lib/utils";
-import { Avatar, CategoryTag, StatusDot } from "@/components/ui";
+import { Avatar, CategoryTag, StatusDot, Verified } from "@/components/ui";
 import { LineBadge, Outcomes } from "./Outcomes";
 
 export function ChallengeCard({ c, index = 0 }: { c: Challenge; index?: number }) {
@@ -41,7 +41,7 @@ export function ChallengeCard({ c, index = 0 }: { c: Challenge; index?: number }
           <Avatar user={creator} size={34} />
         </button>
         <div className="min-w-0 flex-1 leading-tight">
-          <div className="truncate text-[14px] font-semibold">@{creator?.username}</div>
+          <div className="flex min-w-0 items-center gap-1 text-[14px] font-semibold"><span className="truncate">@{creator?.username}</span><Verified user={creator} /></div>
           <div className="text-[12px] text-dim">
             {ago(c.createdAt, now)} · {c.visibility === "public" ? "Public" : c.visibility === "group" ? db.groups.find((g) => g.id === c.groupId)?.name ?? "Group" : "Friends"}
           </div>
@@ -93,11 +93,11 @@ export function ChallengeCard({ c, index = 0 }: { c: Challenge; index?: number }
             e.stopPropagation();
             actions.toggleLike(c.id);
           }}
-          className={cx("flex items-center gap-1.5 rounded-full px-2 py-1.5 text-[13px] transition active:scale-90", liked ? "text-loss" : "text-muted hover:text-white")}
+          className={cx("flex items-center gap-1 rounded-full px-1.5 py-1.5 text-[13px] transition active:scale-90", liked ? "text-loss" : "text-muted hover:text-white")}
         >
           <Heart size={18} fill={liked ? "currentColor" : "none"} className={cx(liked && "animate-pop")} /> <span className="tabular">{c.likes.length}</span>
         </button>
-        <button className="flex items-center gap-1.5 rounded-full px-2 py-1.5 text-[13px] text-muted hover:text-white">
+        <button className="flex items-center gap-1 rounded-full px-1.5 py-1.5 text-[13px] text-muted hover:text-white">
           <MessageCircle size={18} /> <span className="tabular">{comments}</span>
         </button>
         <button
@@ -105,12 +105,12 @@ export function ChallengeCard({ c, index = 0 }: { c: Challenge; index?: number }
             e.stopPropagation();
             nav.openSheet({ kind: "share", challengeId: c.id });
           }}
-          className="flex items-center gap-1.5 rounded-full px-2 py-1.5 text-[13px] text-muted hover:text-white"
+          className="flex items-center gap-1 rounded-full px-1.5 py-1.5 text-[13px] text-muted hover:text-white"
           aria-label="Share"
         >
           <Send size={17} />
         </button>
-        <div className="ml-auto flex gap-1.5">
+        <div className="ml-auto flex min-w-0 gap-1.5">
           {status === "Open" && !mine && twoWay ? (
             c.options.map((o, i) => (
               <button
@@ -120,11 +120,11 @@ export function ChallengeCard({ c, index = 0 }: { c: Challenge; index?: number }
                   pick(o);
                 }}
                 className={cx(
-                  "h-9 max-w-[118px] truncate rounded-xl px-3 text-[13px] font-semibold transition active:scale-95",
+                  "h-9 min-w-[64px] max-w-[110px] truncate whitespace-nowrap rounded-xl px-3 text-[13px] font-semibold transition active:scale-95",
                   i === 0 ? "bg-brand text-white glow" : "bg-lav/15 text-lav",
                 )}
               >
-                Take {o.label.length > 9 ? o.label.split(" ")[0] : o.label}
+                {o.label.length > 9 ? o.label.split(" ")[0] : o.label}
               </button>
             ))
           ) : status === "Open" && !mine ? (

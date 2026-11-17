@@ -45,6 +45,7 @@ export interface User {
   claimStreak?: number;
   trialUsed?: boolean;
   cardTheme?: string;
+  verified?: boolean; // blue-check style badge, set by Tyche admins only
   onboarded?: boolean; // false for new Google/Apple accounts until they confirm their profile
 }
 

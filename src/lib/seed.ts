@@ -265,6 +265,8 @@ export function seed(): DB {
   db.messages = msgs;
 
   // who follows the demo account (counts match the lists so the screens add up)
+  // verified accounts in the demo
+  ["u_hoops", "u_sol", "u_tess"].forEach((id) => db.users[id] && (db.users[id].verified = true));
   db.followerIds = ["u_mya", "u_marcus", "u_jordan", "u_chris", "u_dani", "u_kev", "u_tess", "u_tariq"];
   db.users[ME].followers = db.followerIds.length;
   db.users[ME].following = db.following.length;

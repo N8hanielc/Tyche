@@ -10,7 +10,7 @@ import { useStore } from "@/lib/store";
 import { useNav } from "@/lib/nav";
 import type { Category } from "@/lib/types";
 import { CATEGORY_EMOJI, ago, cx, userRecord } from "@/lib/utils";
-import { Avatar, BottomSheet, Button, Segmented, TopBar } from "@/components/ui";
+import { Avatar, BottomSheet, Button, Segmented, TopBar, Verified } from "@/components/ui";
 import { RoomRow } from "./Rooms";
 import { DeleteAccountSheet, EditProfileSheet } from "./EditProfile";
 
@@ -172,7 +172,7 @@ export function ProfileScreen({ userId }: { userId?: string }) {
           </div>
           <div className="relative mt-4">
             <div className="flex items-center gap-2 font-display text-[22px] font-extrabold tracking-tight">
-              {u.name} {isPlus(u) && <PlusBadge size="md" />}
+              {u.name} <Verified user={u} size={20} /> {isPlus(u) && <PlusBadge size="md" />}
             </div>
             <div className="text-[14px] text-lav">@{u.username}</div>
             {u.bio && <p className="mt-2 text-[14px] leading-relaxed text-white/80">{u.bio}</p>}

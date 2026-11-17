@@ -6,7 +6,7 @@ import { useStore } from "@/lib/store";
 import { useNav } from "@/lib/nav";
 import type { NotificationKind } from "@/lib/types";
 import { ago, cx, myNotifications } from "@/lib/utils";
-import { Avatar, Empty, TopBar } from "@/components/ui";
+import { Avatar, Empty, TopBar, Verified } from "@/components/ui";
 
 const ICON: Record<NotificationKind, string> = {
   joined: "🟣", invite: "📨", reply: "💬", created: "✨", closing: "⏳", started: "▶️", confirmed: "✅", won: "🏆", lost: "💀", follow: "👋",
@@ -49,7 +49,7 @@ export function NotificationsScreen() {
                 {actor && <span className="absolute -bottom-1 -right-1 grid h-5 w-5 place-items-center rounded-full bg-ink text-[11px]">{ICON[n.kind]}</span>}
               </div>
               <div className="min-w-0 flex-1 text-[14px] leading-snug">
-                {actor && <span className="font-semibold">{actor.name} </span>}
+                {actor && <span className="font-semibold">{actor.name} <Verified user={actor} size={13} /> </span>}
                 <span className="text-white/80">{n.text}</span>
                 <div className="mt-0.5 text-[12px] text-dim">{ago(n.at)}</div>
               </div>

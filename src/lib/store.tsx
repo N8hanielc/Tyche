@@ -601,6 +601,7 @@ function makeActions(mutate: (fn: Mutator) => void, later: (ms: number, fn: Muta
         }
         const me = db.users[db.meId];
         me.name = p.name.trim().slice(0, 60);
+        if (me.username !== uname) me.verified = false; // a new username has to be re-verified
         me.username = uname;
         me.bio = p.bio.trim().slice(0, 160) || undefined;
         if (p.avatar !== undefined) me.avatar = p.avatar || undefined;

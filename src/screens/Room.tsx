@@ -8,7 +8,7 @@ import { REMOTE } from "@/lib/supabase";
 import { readImage } from "@/lib/media";
 import type { Challenge, Message } from "@/lib/types";
 import { CATEGORY_EMOJI, ago, clock, countdown, cx, fmtLine, fmtMinutes, myEntry, statusLabel, timeOfDay, totalPool, winnerFromValue } from "@/lib/utils";
-import { Avatar, AvatarStack, BottomSheet, Button, CategoryTag, Segmented, StatusDot, TopBar } from "@/components/ui";
+import { Avatar, AvatarStack, BottomSheet, Button, CategoryTag, Segmented, StatusDot, TopBar, Verified } from "@/components/ui";
 import { LineBadge, Outcomes } from "@/components/challenge/Outcomes";
 
 const REACTIONS = ["😂", "🔥", "💯", "💀", "👀", "❤️"];
@@ -69,6 +69,7 @@ export function RoomScreen({ id }: { id: string }) {
             <button onClick={() => nav.push({ kind: "user", id: c.creatorId })} className="flex min-w-0 items-center gap-2">
               <Avatar user={creator} size={28} />
               <span className="truncate text-[13px] font-semibold">@{creator?.username}</span>
+              <Verified user={creator} size={13} />
             </button>
             <span className="text-[12px] text-dim">· {ago(c.createdAt, now)}</span>
             <div className="ml-auto">

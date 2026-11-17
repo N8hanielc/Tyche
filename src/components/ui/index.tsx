@@ -195,3 +195,19 @@ export function Empty({ icon, title, body, action }: { icon: React.ReactNode; ti
     </div>
   );
 }
+
+/** Verified badge, shown next to a name or username. Only set by Tyche admins. */
+export function Verified({ user, size = 14, className }: { user?: { verified?: boolean } | null; size?: number; className?: string }) {
+  if (!user?.verified) return null;
+  return (
+    <svg viewBox="0 0 24 24" width={size} height={size} className={cx("inline-block shrink-0 align-[-2px]", className)} role="img" aria-label="Verified">
+      <title>Verified</title>
+      <path
+        fill="#8247FF"
+        d="M12 1.5l2.4 1.8 3 .1.9 2.8 2.4 1.8-.9 2.9.9 2.8-2.4 1.8-.9 2.8-3 .1L12 20.4l-2.4-1.8-3-.1-.9-2.8-2.4-1.8.9-2.8-.9-2.9 2.4-1.8.9-2.8 3-.1z"
+        transform="translate(0 1)"
+      />
+      <path d="M8.2 12.6l2.5 2.5 5.1-5.3" fill="none" stroke="#fff" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}

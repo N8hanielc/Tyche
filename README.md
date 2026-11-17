@@ -71,6 +71,15 @@ A private room for a night of family games. Start one from **Rooms → Game Nigh
 
 Live mode: Game Night uses the `nights` / `night_members` tables and the `night_*` functions in `supabase/schema.sql`. Re-run that file after updating.
 
+## Verified accounts
+
+The purple check next to a name means the account is verified. Only you can set it:
+
+- **Supabase → Table Editor → profiles → `verified` column**: tick or untick it on a row.
+- Or SQL: `update profiles set verified = true where username = 'their.username';`
+
+App users can't change it themselves. Changing a username removes the badge until you verify the new one.
+
 ## Supabase (live mode)
 
 The app connects to Supabase automatically (project URL + publishable key in `src/lib/supabase.ts`; override with `NEXT_PUBLIC_SUPABASE_URL` / `NEXT_PUBLIC_SUPABASE_ANON_KEY`, or set `NEXT_PUBLIC_TYCHE_LOCAL=1` for the offline demo). The single-file preview always runs the offline demo.
