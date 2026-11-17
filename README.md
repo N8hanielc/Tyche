@@ -80,6 +80,31 @@ The purple check next to a name means the account is verified. Only you can set 
 
 App users can't change it themselves. Changing a username removes the badge until you verify the new one.
 
+## Ads (sponsored cards + Discover banner)
+
+Campaigns live in **Supabase → Table Editor → `ad_campaigns`**. Add a row per campaign:
+
+| Column | What to put |
+|---|---|
+| `advertiser` | Company name. Frequency caps are per company, so use the same spelling for all of a company's campaigns. |
+| `logo` | An emoji, or an image URL (square works best). |
+| `url` / `domain` | Where a tap goes, and the short domain shown on the card. |
+| `card_question`, `card_options`, `card_cta` | The sponsored card: a question, exactly two options `[{"label":"…","sub":"…"},{"label":"…","sub":"…"}]`, and the button text. Leave `card_question` empty for banner-only. |
+| `banner_text` | One line for the Discover banner. Leave empty for card-only. |
+| `duration_days` | 7, 14 or 30. `ends_at` fills itself in. |
+| `impressions_purchased` | 1000, 3000, 5000 or 10000 (shared by card + banner). |
+| `starts_at` / `status` | When it begins; set `status` to `paused` to stop it. |
+
+**Reporting:** `select * from ad_report;` shows impressions (card / banner), clicks, CTR, reach, remaining, days left, pace %, and whether it's running/expired.
+
+**How delivery works**
+- Pacing: each campaign is spread evenly over its run. It's skipped whenever it's ahead of schedule, and campaigns furthest behind get picked most often.
+- Feed cards: first one after a user has viewed 4 organic posts, then at least 6 posts between ads, max 6 sponsored cards per user per day.
+- Caps per user: same company banner 4/day · same company card 2 per 24h · same company across both 5/day · same card 2 per 24h.
+- An impression only counts once the ad is at least half on screen for 1 second. Clicks count once per hour per person.
+- Banner rotates every 20 seconds, preferring a different campaign each time.
+- The numbers live in `tyche_private.cfg` (`ad_…` keys) in `schema.sql`.
+
 ## Supabase (live mode)
 
 The app connects to Supabase automatically (project URL + publishable key in `src/lib/supabase.ts`; override with `NEXT_PUBLIC_SUPABASE_URL` / `NEXT_PUBLIC_SUPABASE_ANON_KEY`, or set `NEXT_PUBLIC_TYCHE_LOCAL=1` for the offline demo). The single-file preview always runs the offline demo.

@@ -1,12 +1,13 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { Fragment, useMemo, useState } from "react";
 import { Bell, Radio, Sparkles } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { useNav } from "@/lib/nav";
 import { PILL_CATEGORIES, canSee, heat, myNotifications } from "@/lib/utils";
 import { Avatar, Empty, Logo, Pill, Segmented } from "@/components/ui";
 import { ChallengeCard } from "@/components/challenge/ChallengeCard";
+import { SponsoredCard, Viewed, useFeedAds } from "@/components/ads/Ads";
 import { DailyClaimCard } from "@/screens/Plus";
 import { NightBanner } from "@/screens/GameNight";
 
@@ -37,6 +38,7 @@ export function HomeScreen() {
       return s(b) - s(a);
     });
   }, [db, feed, pill]);
+  const ads = useFeedAds(`${feed}:${pill ?? ""}`);
 
   return (
     <div>
@@ -97,9 +99,17 @@ export function HomeScreen() {
         />
 
         <div className="space-y-3">
-          {list.map((c, i) => (
-            <ChallengeCard key={c.id} c={c} index={i} />
-          ))}
+          {list.map((c, i) => {
+            const ad = ads.adAfter(i);
+            return (
+              <Fragment key={c.id}>
+                <Viewed index={i} onViewed={ads.onViewed}>
+                  <ChallengeCard c={c} index={i} />
+                </Viewed>
+                {ad && <SponsoredCard ad={ad} onHide={() => ads.hide(ad.id)} />}
+              </Fragment>
+            );
+          })}
           {!list.length && (
             <Empty
               icon={<Radio size={24} />}

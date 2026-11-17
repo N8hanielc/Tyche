@@ -1,5 +1,5 @@
 // Preview-only: maps lucide-react names to react-icons' Lucide set (lucide-react isn't installable offline here).
-import { LuArrowRight, LuArrowUpDown, LuAtSign, LuBell, LuCalendarClock, LuCamera, LuChartColumn, LuCheck, LuChevronDown, LuChevronLeft, LuChevronRight, LuClock, LuCoins, LuCompass, LuCopy, LuCrown, LuEye, LuEyeOff, LuFastForward, LuFileText, LuFlag, LuFlame, LuGift, LuGlobe, LuHash, LuHeart, LuHouse, LuImagePlus, LuInfinity, LuLink2, LuListChecks, LuLock, LuLogOut, LuMail, LuMessageCircle, LuMessageSquare, LuMessagesSquare, LuMinus, LuPalette, LuPlay, LuPlus, LuRadio, LuReply, LuRotateCcw, LuSearch, LuSend, LuSettings, LuShare, LuShare2, LuShield, LuShuffle, LuSmile, LuSparkles, LuSquare, LuSwords, LuThumbsUp, LuToggleLeft, LuTrash2, LuTriangleAlert, LuTrophy, LuUser, LuUserPlus, LuUsers, LuX } from "react-icons/lu";
+import { LuArrowRight, LuArrowUpDown, LuArrowUpRight, LuAtSign, LuBell, LuCalendarClock, LuCamera, LuChartColumn, LuCheck, LuChevronDown, LuChevronLeft, LuChevronRight, LuClock, LuCoins, LuCompass, LuCopy, LuCrown, LuEllipsis, LuEye, LuEyeOff, LuFastForward, LuFileText, LuFlag, LuFlame, LuGift, LuGlobe, LuHash, LuHeart, LuHouse, LuImagePlus, LuInfinity, LuLink2, LuListChecks, LuLock, LuLogOut, LuMail, LuMessageCircle, LuMessageSquare, LuMessagesSquare, LuMinus, LuPalette, LuPlay, LuPlus, LuRadio, LuReply, LuRotateCcw, LuSearch, LuSend, LuSettings, LuShare, LuShare2, LuShield, LuShuffle, LuSmile, LuSparkles, LuSquare, LuSwords, LuThumbsUp, LuToggleLeft, LuTrash2, LuTriangleAlert, LuTrophy, LuUser, LuUserPlus, LuUsers, LuX } from "react-icons/lu";
 type P = { size?: number; strokeWidth?: number; className?: string; fill?: string };
 type C = React.ComponentType<Record<string, unknown>>;
 const wrap = (I: unknown) => {
@@ -11,6 +11,7 @@ const wrap = (I: unknown) => {
 export const AlertTriangle = wrap(LuTriangleAlert);
 export const ArrowRight = wrap(LuArrowRight);
 export const ArrowUpDown = wrap(LuArrowUpDown);
+export const ArrowUpRight = wrap(LuArrowUpRight);
 export const AtSign = wrap(LuAtSign);
 export const BarChart3 = wrap(LuChartColumn);
 export const Bell = wrap(LuBell);
@@ -47,6 +48,7 @@ export const MessageCircle = wrap(LuMessageCircle);
 export const MessageSquare = wrap(LuMessageSquare);
 export const MessagesSquare = wrap(LuMessagesSquare);
 export const Minus = wrap(LuMinus);
+export const MoreHorizontal = wrap(LuEllipsis);
 export const Palette = wrap(LuPalette);
 export const Play = wrap(LuPlay);
 export const Plus = wrap(LuPlus);

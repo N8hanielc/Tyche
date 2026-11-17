@@ -8,6 +8,7 @@ import type { Challenge } from "@/lib/types";
 import { CATEGORIES, CATEGORY_EMOJI, canSee, clock, heat, totalPool, userRecord, isCrowd } from "@/lib/utils";
 import { Avatar, CategoryTag, Empty, Pill, Verified } from "@/components/ui";
 import { ChallengeCard } from "@/components/challenge/ChallengeCard";
+import { AdBanner } from "@/components/ads/Ads";
 
 function MiniCard({ c, live }: { c: Challenge; live?: boolean }) {
   const { db } = useStore();
@@ -234,6 +235,8 @@ export function DiscoverScreen() {
           </Section>
         </div>
       )}
+      <AdBanner />
+      <div className="h-16" />
     </div>
   );
 }

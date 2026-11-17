@@ -11,7 +11,7 @@ export default function PrivacyPage() {
       intro={
         <p>
           This policy explains what {LEGAL.company} (“we”) collects when you use {LEGAL.site} and the Tyche app, why, who we share it with, and how to delete it. Short version: we
-          collect what the app needs to work, we don’t sell your data, we don’t run ads, and you can delete your account and everything you uploaded from inside the app.
+          collect what the app needs to work, we don’t sell your data, ads don’t track you, and you can delete your account and everything you uploaded from inside the app.
         </p>
       }
       sections={[
@@ -23,6 +23,7 @@ export default function PrivacyPage() {
               <li><b>Profile:</b> your photo and bio, if you add them.</li>
               <li><b>What you create and do in Tyche:</b> challenges, props, sides you take, points, results, votes, disputes, follows, groups, Game Nights (including guest names a host types in), chat messages, and photos you upload as challenge images, chat images or result evidence.</li>
               <li><b>Payments:</b> if you subscribe to Tyche+, Stripe collects your card details. We never see or store your card number. We keep your Stripe customer ID and subscription status (plan, trial, renewal date).</li>
+              <li><b>Ads:</b> which sponsored posts and banners were shown to you, and which you tapped. We use this to limit how often you see each ad and to give advertisers totals.</li>
               <li><b>Technical data:</b> your approximate region (state/country, from your IP address) to check where Tyche+ is available, plus standard server logs (IP address, browser type, time of request) kept by our hosting provider for security and debugging. We store your time zone to reset daily points.</li>
             </ul>
           ),
@@ -42,7 +43,10 @@ export default function PrivacyPage() {
           body: (
             <ul>
               <li>We don’t sell or rent your personal information, and we don’t share it for advertising.</li>
-              <li>We don’t show ads or use advertising trackers.</li>
+              <li>
+                We show sponsored posts and banners from businesses we work with directly, always labeled “Sponsored” or “Ad.” Advertisers only get totals (how many times their ad was seen
+                and tapped), never who saw it. We don’t use ad networks, advertising cookies, or trackers that follow you around the web.
+              </li>
               <li><b>We don’t use AI</b> to analyze, profile or make decisions about you. No artificial intelligence features process your data in the app. If that ever changes, we’ll update this policy and tell you in the app first.</li>
             </ul>
           ),

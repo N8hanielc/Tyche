@@ -187,6 +187,14 @@ create or replace function tyche_private.cfg(k text) returns numeric language sq
     when 'vote_quorum' then 3
     when 'trial_days' then 7
     when 'wild_stake' then 20
+    -- ads
+    when 'ad_card_min_organic' then 4      -- organic posts a user must view before the first sponsored card
+    when 'ad_card_gap' then 6              -- organic posts between sponsored cards
+    when 'ad_card_daily_limit' then 6      -- sponsored cards per user per day (all companies)
+    when 'ad_cap_company_banner_day' then 4
+    when 'ad_cap_company_card_24h' then 2
+    when 'ad_cap_company_any_day' then 5
+    when 'ad_cap_card_24h' then 2
   end
 $$;
 
@@ -1278,6 +1286,192 @@ begin
 end $$;
 revoke execute on function public.delete_account_prepare(uuid) from public, anon, authenticated;
 grant execute on function public.delete_account_prepare(uuid) to service_role;
+
+
+-- =================================================================== ADS ===
+-- Sponsored cards (Home feed) and banners (Discover), sold as campaigns.
+-- Manage campaigns in Supabase → Table Editor → ad_campaigns.
+-- Reporting: select * from ad_report;  (Table Editor shows it too)
+
+create table if not exists public.ad_campaigns (
+  id uuid primary key default gen_random_uuid(),
+  advertiser text not null,                       -- the company; frequency caps are per company
+  logo text not null default '📣',                -- emoji or image URL
+  tint text not null default '#8247FF',
+  url text not null default '',                   -- where taps go
+  domain text not null default '',                -- shown on the card, e.g. "conexcard.com"
+  card_question text,                             -- leave empty for banner-only campaigns
+  card_options jsonb not null default '[]',       -- exactly two: [{"label":"…","sub":"…"}, …]
+  card_cta text not null default 'Learn more',
+  banner_text text,                               -- leave empty for card-only campaigns
+  duration_days int not null default 7 check (duration_days in (7, 14, 30)),
+  impressions_purchased int not null default 1000 check (impressions_purchased in (1000, 3000, 5000, 10000)),
+  starts_at timestamptz not null default now(),
+  ends_at timestamptz,
+  status text not null default 'active' check (status in ('active', 'paused')),
+  created_at timestamptz not null default now()
+);
+
+create or replace function tyche_private.ad_set_end() returns trigger language plpgsql as $$
+begin
+  new.ends_at := new.starts_at + make_interval(days => new.duration_days);
+  return new;
+end $$;
+drop trigger if exists ad_set_end on public.ad_campaigns;
+create trigger ad_set_end before insert or update of starts_at, duration_days on public.ad_campaigns
+  for each row execute function tyche_private.ad_set_end();
+
+create table if not exists public.ad_events (
+  id bigint generated always as identity primary key,
+  campaign_id uuid not null references public.ad_campaigns (id) on delete cascade,
+  user_id uuid references public.profiles (id) on delete cascade,
+  kind text not null check (kind in ('impression', 'click')),
+  format text not null check (format in ('card', 'banner')),
+  at timestamptz not null default clock_timestamp()
+);
+create index if not exists ad_events_user_at on public.ad_events (user_id, at desc);
+create index if not exists ad_events_campaign on public.ad_events (campaign_id, kind);
+
+alter table public.ad_campaigns enable row level security;
+alter table public.ad_events enable row level security;
+revoke all on public.ad_campaigns, public.ad_events from anon, authenticated;
+
+-- Start of "today" in the viewer's time zone.
+create or replace function tyche_private.ad_day_start(tz text) returns timestamptz language plpgsql stable as $$
+begin
+  return date_trunc('day', now() at time zone tz) at time zone tz;
+exception when others then
+  return date_trunc('day', now());
+end $$;
+
+-- Frequency caps for one viewer + campaign + format. true = may show.
+create or replace function tyche_private.ad_under_caps(uid uuid, c public.ad_campaigns, fmt text, day_start timestamptz) returns boolean
+language sql stable set search_path = public as $$
+  with seen as (
+    select e.campaign_id, a.advertiser, e.format, e.at
+    from ad_events e join ad_campaigns a on a.id = e.campaign_id
+    where e.user_id = uid and e.kind = 'impression' and e.at > least(day_start, now() - interval '24 hours')
+  )
+  select
+    (fmt <> 'banner' or (select count(*) from seen where advertiser = c.advertiser and format = 'banner' and at >= day_start) < tyche_private.cfg('ad_cap_company_banner_day'))
+    and (fmt <> 'card' or (select count(*) from seen where advertiser = c.advertiser and format = 'card' and at > now() - interval '24 hours') < tyche_private.cfg('ad_cap_company_card_24h'))
+    and (fmt <> 'card' or (select count(*) from seen where campaign_id = c.id and format = 'card' and at > now() - interval '24 hours') < tyche_private.cfg('ad_cap_card_24h'))
+    and (select count(*) from seen where advertiser = c.advertiser and at >= day_start) < tyche_private.cfg('ad_cap_company_any_day')
+$$;
+
+-- Pacing: where a campaign *should* be by now if its impressions were spread evenly.
+create or replace function tyche_private.ad_target(c public.ad_campaigns) returns numeric language sql stable as $$
+  select c.impressions_purchased * least(1, greatest(0,
+    extract(epoch from (now() + interval '1 hour' - c.starts_at)) / nullif(extract(epoch from (c.ends_at - c.starts_at)), 0)))
+$$;
+
+create or replace function tyche_private.ad_delivered(cid uuid) returns int language sql stable as $$
+  select count(*)::int from public.ad_events where campaign_id = cid and kind = 'impression'
+$$;
+
+-- Picks the campaign to show in one placement, or null if nothing should show.
+--   fmt: 'card' | 'banner';  organic_seen: organic posts the viewer has seen since the last
+--   sponsored card (cards only);  exclude: campaigns already on screen.
+create or replace function public.ad_pick(fmt text, organic_seen int default 0, tz text default 'UTC', exclude uuid[] default '{}')
+returns jsonb language plpgsql security definer set search_path = public as $$
+declare
+  uid uuid := tyche_private.me();
+  day_start timestamptz := tyche_private.ad_day_start(tz);
+  c ad_campaigns;
+begin
+  if fmt not in ('card', 'banner') then return null; end if;
+  if fmt = 'card' then
+    -- 2. enough organic posts? under the daily sponsored-card limit?
+    if organic_seen < tyche_private.cfg('ad_card_gap') and exists (
+         select 1 from ad_events where user_id = uid and kind = 'impression' and format = 'card' and at >= day_start)
+       then return null; end if;
+    if organic_seen < tyche_private.cfg('ad_card_min_organic') then return null; end if;
+    if (select count(*) from ad_events where user_id = uid and kind = 'impression' and format = 'card' and at >= day_start)
+       >= tyche_private.cfg('ad_card_daily_limit') then return null; end if;
+  end if;
+
+  -- 3. eligible campaigns  4. weighted by how far behind schedule they are
+  select a.* into c
+  from ad_campaigns a
+  cross join lateral (select tyche_private.ad_delivered(a.id) as done, tyche_private.ad_target(a) as target,
+                             greatest(3, a.impressions_purchased * 0.01) as slack) d
+  where a.status = 'active' and now() >= a.starts_at and now() < a.ends_at
+    and d.done < a.impressions_purchased
+    and d.done < d.target + d.slack                        -- don't run ahead of the even pace
+    and not (a.id = any(coalesce(exclude, '{}')))
+    and case fmt when 'card' then a.card_question is not null and jsonb_array_length(a.card_options) = 2
+                 else a.banner_text is not null end
+    and tyche_private.ad_under_caps(uid, a, fmt, day_start)
+  order by random() ^ (1.0 / greatest(0.0001, (d.target + d.slack - d.done) / a.impressions_purchased)) desc
+  limit 1;
+
+  if c.id is null then return null; end if;
+  return jsonb_build_object('id', c.id, 'sponsor', c.advertiser, 'logo', c.logo, 'tint', c.tint, 'url', c.url, 'domain', c.domain,
+    'question', c.card_question, 'options', c.card_options, 'cta', c.card_cta, 'banner', c.banner_text);
+end $$;
+
+-- 5. Records a viewable impression (≥50% on screen for 1s) or a click.
+--    Impressions are re-checked against caps and remaining delivery, so they can't be inflated.
+create or replace function public.ad_record(cid uuid, fmt text, ev text, tz text default 'UTC') returns boolean
+language plpgsql security definer set search_path = public as $$
+declare
+  uid uuid := tyche_private.me();
+  c ad_campaigns;
+begin
+  if fmt not in ('card', 'banner') or ev not in ('impression', 'click') then return false; end if;
+  select * into c from ad_campaigns where id = cid for update;   -- serialize the remaining-count check
+  if not found then return false; end if;
+  if ev = 'impression' then
+    if c.status <> 'active' or now() >= c.ends_at or tyche_private.ad_delivered(cid) >= c.impressions_purchased then return false; end if;
+    if not tyche_private.ad_under_caps(uid, c, fmt, tyche_private.ad_day_start(tz)) then return false; end if;
+  else
+    -- a click needs a recent impression, and counts once per hour per viewer
+    if not exists (select 1 from ad_events where campaign_id = cid and user_id = uid and kind = 'impression' and at > now() - interval '24 hours') then return false; end if;
+    if exists (select 1 from ad_events where campaign_id = cid and user_id = uid and kind = 'click' and at > now() - interval '1 hour') then return false; end if;
+  end if;
+  insert into ad_events (campaign_id, user_id, kind, format) values (cid, uid, ev, fmt);
+  return true;
+end $$;
+
+-- Campaign reporting (only you can read it: Table Editor or SQL Editor).
+create or replace view public.ad_report with (security_invoker = true) as
+select
+  c.advertiser, c.id as campaign_id, c.status,
+  c.starts_at, c.ends_at,
+  case when now() >= c.ends_at then 'expired' when c.status = 'paused' then 'paused'
+       when now() < c.starts_at then 'scheduled' else 'running' end as state,
+  greatest(0, ceil(extract(epoch from (c.ends_at - now())) / 86400))::int as days_left,
+  c.impressions_purchased,
+  count(*) filter (where e.kind = 'impression') as impressions,
+  count(*) filter (where e.kind = 'impression' and e.format = 'card') as card_impressions,
+  count(*) filter (where e.kind = 'impression' and e.format = 'banner') as banner_impressions,
+  greatest(0, c.impressions_purchased - count(*) filter (where e.kind = 'impression')) as remaining,
+  count(*) filter (where e.kind = 'click') as clicks,
+  round(100.0 * count(*) filter (where e.kind = 'click') / nullif(count(*) filter (where e.kind = 'impression'), 0), 2) as ctr_pct,
+  count(distinct e.user_id) filter (where e.kind = 'impression') as reach,
+  round(100.0 * count(*) filter (where e.kind = 'impression') / nullif(tyche_private.ad_target(c), 0), 0) as pace_pct
+from public.ad_campaigns c
+left join public.ad_events e on e.campaign_id = c.id
+group by c.id
+order by c.ends_at desc;
+revoke all on public.ad_report from anon, authenticated;
+
+-- Placeholder campaigns until real advertisers buy in (safe to re-run; delete them any time).
+insert into public.ad_campaigns (id, advertiser, logo, tint, url, domain, card_question, card_options, card_cta, banner_text, duration_days, impressions_purchased)
+values
+  ('a0000000-0000-4000-8000-000000000001', 'Conex Card', '🪪', '#8247FF', '', '',
+   'Still handing out paper business cards?',
+   '[{"label":"Paper","sub":"Gets lost by Monday"},{"label":"Conex","sub":"One tap, saved forever"}]', 'Make your card',
+   'Your business card, on everyone’s phone in one tap', 30, 10000),
+  ('a0000000-0000-4000-8000-000000000002', 'Conex Card', '🪪', '#8247FF', '', '',
+   'Who has the better business card at your next event?',
+   '[{"label":"Them","sub":"Paper, plain, forgettable"},{"label":"You","sub":"Digital card, your brand"}]', 'Try Conex free',
+   'Share your brand with a tap. Try Conex free', 30, 10000),
+  ('a0000000-0000-4000-8000-000000000003', 'Les Belle Fleur', '💐', '#E58BA7', '', '',
+   'Front door this season: wreath or bare?',
+   '[{"label":"Custom wreath","sub":"Made to match your home"},{"label":"Bare door","sub":"The neighbors noticed"}]', 'Shop wreaths',
+   'Custom wreaths & floral decor for every season', 30, 10000)
+on conflict (id) do nothing;
 
 -- Realtime: tell the app when something it can see changes.
 do $$

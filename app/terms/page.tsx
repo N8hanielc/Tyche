@@ -73,7 +73,8 @@ export default function TermsPage() {
           h: "The service",
           body: (
             <p>
-              We’re constantly building Tyche, so features may change. Tyche is provided “as is,” without warranties of any kind. To the fullest extent the law allows, we aren’t liable for
+              We’re constantly building Tyche, so features may change. Tyche shows sponsored content, labeled “Sponsored” or “Ad”; tapping it takes you to the advertiser, who is
+              responsible for their own products and offers. Tyche is provided “as is,” without warranties of any kind. To the fullest extent the law allows, we aren’t liable for
               indirect or consequential damages, and our total liability is limited to what you paid us in the 12 months before the claim.
             </p>
           ),
