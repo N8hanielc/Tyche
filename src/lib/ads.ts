@@ -36,6 +36,42 @@ export const AD_RULES = {
 
 const tz = () => Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
 
+/** One id per app load, so the server can apply per-session ad limits. */
+const SESSION_ID =
+  typeof crypto !== "undefined" && "randomUUID" in crypto
+    ? crypto.randomUUID()
+    : `${Date.now().toString(16).padStart(8, "0").slice(-8)}-0000-4000-8000-${Math.random().toString(16).slice(2, 14).padEnd(12, "0")}`;
+
+/**
+ * Live ad settings from the server (set in /admin → Ad settings), so changes apply
+ * without a redeploy. Until they load (and in demo mode) the AD_RULES defaults apply.
+ */
+export interface AdConfig {
+  bannerEnabled: boolean;
+  cardEnabled: boolean;
+  cardMinOrganic: number;
+  cardGap: number;
+  bannerRotateMs: number;
+}
+let config: AdConfig = {
+  bannerEnabled: true,
+  cardEnabled: true,
+  cardMinOrganic: AD_RULES.cardMinOrganic,
+  cardGap: AD_RULES.cardGap,
+  bannerRotateMs: AD_RULES.bannerRotateMs,
+};
+let configLoad: Promise<AdConfig> | null = null;
+export const adConfig = () => config;
+export function loadAdConfig(): Promise<AdConfig> {
+  if (!REMOTE || !supabase) return Promise.resolve(config);
+  configLoad ??= Promise.resolve(supabase.rpc("ad_config")).then(({ data, error }) => {
+    if (error || !data) return config; // older database without ad_config: keep defaults
+    config = { ...config, ...(data as Partial<AdConfig>) };
+    return config;
+  }, () => config);
+  return configLoad;
+}
+
 // ------------------------------------------------------------ demo mode --
 
 /** Placeholder campaigns (match the rows inserted by schema.sql). */
@@ -118,7 +154,9 @@ function demoRecord(ad: Ad, fmt: AdFormat, kind: Ev["kind"]) {
 /** Asks for an ad for one placement. null = show nothing. */
 export async function pickAd(fmt: AdFormat, organicSeen = 0, exclude: string[] = []): Promise<Ad | null> {
   if (!REMOTE || !supabase) return demoPick(fmt, organicSeen, exclude);
-  const { data, error } = await supabase.rpc("ad_pick", { fmt, organic_seen: organicSeen, tz: tz(), exclude });
+  const cfg = await loadAdConfig();
+  if (fmt === "banner" ? !cfg.bannerEnabled : !cfg.cardEnabled) return null;
+  const { data, error } = await supabase.rpc("ad_pick", { fmt, organic_seen: organicSeen, tz: tz(), exclude, sid: SESSION_ID });
   if (error) {
     console.warn("Tyche: ad_pick failed", error.message);
     return null;
@@ -129,7 +167,7 @@ export async function pickAd(fmt: AdFormat, organicSeen = 0, exclude: string[] =
 /** Records a viewable impression or a click. Returns false if it didn't count (e.g. capped). */
 export async function recordAd(ad: Ad, fmt: AdFormat, kind: "impression" | "click"): Promise<boolean> {
   if (!REMOTE || !supabase) return demoRecord(ad, fmt, kind);
-  const { data, error } = await supabase.rpc("ad_record", { cid: ad.id, fmt, ev: kind, tz: tz() });
+  const { data, error } = await supabase.rpc("ad_record", { cid: ad.id, fmt, ev: kind, tz: tz(), sid: SESSION_ID });
   if (error) {
     console.warn("Tyche: ad_record failed", error.message);
     return false;

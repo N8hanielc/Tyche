@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { ArrowUpRight, MoreHorizontal, X } from "lucide-react";
-import { AD_RULES, openAd, pickAd, recordAd, type Ad, type AdFormat } from "@/lib/ads";
+import { AD_RULES, adConfig, loadAdConfig, openAd, pickAd, recordAd, type Ad, type AdFormat } from "@/lib/ads";
 import { cx } from "@/lib/utils";
 
 /**
@@ -38,7 +38,7 @@ export function useViewable(ref: React.RefObject<HTMLElement | null>, onView: ()
   }, [ref, key, ms]);
 }
 
-function Logo({ ad, size }: { ad: Ad; size: number }) {
+export function AdLogo({ ad, size }: { ad: Ad; size: number }) {
   const img = ad.logo.startsWith("http");
   return (
     <span
@@ -59,12 +59,20 @@ function useImpression(ad: Ad, fmt: AdFormat) {
 
 /** Sponsored post in the Home feed. Built like a prop card, clearly labeled. */
 export function SponsoredCard({ ad, onHide }: { ad: Ad; onHide?: () => void }) {
-  const [menu, setMenu] = useState(false);
   const ref = useImpression(ad, "card");
+  return <SponsoredCardView ref={ref} ad={ad} onOpen={() => openAd(ad, "card")} onHide={onHide} />;
+}
+
+/**
+ * How a sponsored card looks, with no tracking attached.
+ * Used by the feed (above) and by the ad preview in /admin, so the preview is the real thing.
+ */
+export function SponsoredCardView({ ad, onOpen, onHide, ref }: { ad: Ad; onOpen?: () => void; onHide?: () => void; ref?: React.Ref<HTMLElement> }) {
+  const [menu, setMenu] = useState(false);
   return (
-    <article ref={ref} onClick={() => openAd(ad, "card")} className="relative cursor-pointer rounded-[26px] bg-card p-4 hairline transition-colors hover:bg-[#171a24]">
+    <article ref={ref} onClick={onOpen} className="relative cursor-pointer rounded-[26px] bg-card p-4 hairline transition-colors hover:bg-[#171a24]">
       <header className="mb-3 flex items-center gap-2.5">
-        <Logo ad={ad} size={34} />
+        <AdLogo ad={ad} size={34} />
         <div className="min-w-0 flex-1 leading-tight">
           <div className="truncate text-[14px] font-semibold">{ad.sponsor}</div>
           <div className="text-[12px] text-dim">Sponsored</div>
@@ -128,8 +136,12 @@ export function AdBanner() {
       if (a) recent.current = [a.id, ...recent.current].slice(0, 2);
       setAd(a);
     };
-    void next();
-    const t = setInterval(() => document.visibilityState === "visible" && void next(), AD_RULES.bannerRotateMs);
+    let t: ReturnType<typeof setInterval> | undefined;
+    void loadAdConfig().then((cfg) => {
+      if (!alive || !cfg.bannerEnabled) return;
+      void next();
+      t = setInterval(() => document.visibilityState === "visible" && void next(), cfg.bannerRotateMs);
+    });
     return () => {
       alive = false;
       clearInterval(t);
@@ -144,13 +156,20 @@ export function AdBanner() {
   if (closed || !ad) return null;
   return (
     <div className="pointer-events-none fixed inset-x-0 bottom-[calc(max(env(safe-area-inset-bottom),8px)+66px)] z-30 mx-auto max-w-[440px] px-3">
+      <AdBannerView ref={ref} key={ad.id + shown} ad={ad} onOpen={() => openAd(ad, "banner")} onClose={() => setClosed(true)} />
+    </div>
+  );
+}
+
+/** How the Discover banner looks, with no tracking attached (also used by the /admin preview). */
+export function AdBannerView({ ad, onOpen, onClose, ref }: { ad: Ad; onOpen?: () => void; onClose?: () => void; ref?: React.Ref<HTMLDivElement> }) {
+  return (
       <div
         ref={ref}
-        key={ad.id + shown}
-        onClick={() => openAd(ad, "banner")}
+        onClick={onOpen}
         className={cx("pointer-events-auto flex animate-rise cursor-pointer items-center gap-2.5 rounded-2xl bg-[#12141c]/95 py-2 pl-2 pr-1.5 backdrop-blur-xl hairline", "shadow-[0_12px_40px_-12px_rgba(0,0,0,0.9)]")}
       >
-        <Logo ad={ad} size={36} />
+        <AdLogo ad={ad} size={36} />
         <div className="min-w-0 flex-1 leading-tight">
           <div className="flex items-center gap-1.5 text-[13px] font-semibold">
             <span className="truncate">{ad.sponsor}</span>
@@ -162,7 +181,7 @@ export function AdBanner() {
         <button
           onClick={(e) => {
             e.stopPropagation();
-            setClosed(true);
+            onClose?.();
           }}
           className="grid h-7 w-7 shrink-0 place-items-center rounded-full text-dim hover:text-white"
           aria-label="Close ad"
@@ -170,7 +189,6 @@ export function AdBanner() {
           <X size={14} />
         </button>
       </div>
-    </div>
   );
 }
 
@@ -184,12 +202,13 @@ export function AdBanner() {
 export function useFeedAds(feedKey: string) {
   const [placed, setPlaced] = useState<Record<number, Ad>>({}); // ad shown after organic post #index
   const [hidden, setHidden] = useState<string[]>([]);
-  const state = useRef({ viewed: -1, lastAdAt: -1, nextCheck: AD_RULES.cardMinOrganic - 1, busy: false });
+  const state = useRef({ viewed: -1, lastAdAt: -1, nextCheck: adConfig().cardMinOrganic - 1, busy: false });
+  useEffect(() => void loadAdConfig(), []);
 
   // a different feed (tab/filter) starts the counting over
   useEffect(() => {
     setPlaced({});
-    state.current = { viewed: -1, lastAdAt: -1, nextCheck: AD_RULES.cardMinOrganic - 1, busy: false };
+    state.current = { viewed: -1, lastAdAt: -1, nextCheck: adConfig().cardMinOrganic - 1, busy: false };
   }, [feedKey]);
 
   const onViewed = async (index: number) => {
@@ -205,9 +224,9 @@ export function useFeedAds(feedKey: string) {
     if (ad) {
       setPlaced((p) => ({ ...p, [index]: ad }));
       s.lastAdAt = index;
-      s.nextCheck = index + AD_RULES.cardGap;
+      s.nextCheck = index + adConfig().cardGap;
     } else {
-      s.nextCheck = index + AD_RULES.cardGap; // nothing eligible now; try again further down
+      s.nextCheck = index + adConfig().cardGap; // nothing eligible now; try again further down
     }
   };
 

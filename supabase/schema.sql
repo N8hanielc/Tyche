@@ -37,6 +37,55 @@ alter table public.profiles add column if not exists onboarded boolean not null 
 -- Verified badge. Only you can set it (Supabase Table Editor or SQL); app users can't change it.
 alter table public.profiles add column if not exists verified boolean not null default false;
 
+-- Admin-only account state (suspension, game restriction, review flag, verification audit,
+-- last activity). Kept out of `profiles` on purpose: every signed-in user can read all of
+-- `profiles` through the API, and none of this should be visible to them.
+create table if not exists tyche_private.account_status (
+  user_id uuid primary key references public.profiles (id) on delete cascade,
+  suspended_at timestamptz,          -- can sign in, can't do anything
+  suspended_reason text,
+  restricted_at timestamptz,         -- can browse and chat, can't create, join, vote on or settle games
+  restricted_reason text,
+  flagged_at timestamptz,            -- internal review flag, invisible to the user
+  flagged_reason text,
+  verified_at timestamptz,
+  verified_by uuid,
+  last_active_at timestamptz
+);
+
+-- One row per user per (UTC) day they opened the app. Powers daily/monthly active users.
+create table if not exists tyche_private.activity_days (
+  day date not null,
+  user_id uuid not null,
+  primary key (day, user_id)
+);
+
+-- Permanent points ledger. Every change to profiles.points lands here (trigger below),
+-- tagged with where it came from. No foreign keys: the ledger outlives deleted accounts.
+create table if not exists tyche_private.points_transactions (
+  id bigint generated always as identity primary key,
+  at timestamptz not null default clock_timestamp(),
+  user_id uuid not null,
+  delta int not null,
+  balance_before int not null,
+  balance_after int not null,
+  source text not null,   -- signup | opening_balance | stake | settle | refund | resettle | daily_claim | plus_topup | admin_issue | admin_deduct | app
+  challenge_id uuid,
+  admin_id uuid,
+  reason text,
+  idempotency_key uuid unique
+);
+create index if not exists points_tx_user_at on tyche_private.points_transactions (user_id, at desc);
+create index if not exists points_tx_source_at on tyche_private.points_transactions (source, at);
+
+-- Overrides for the tunable numbers in tyche_private.cfg (only ad_* keys are editable, from /admin).
+create table if not exists tyche_private.settings (
+  key text primary key,
+  value numeric not null,
+  updated_at timestamptz not null default now(),
+  updated_by uuid
+);
+
 create table if not exists public.follows (
   follower uuid not null references public.profiles (id) on delete cascade,
   followee uuid not null references public.profiles (id) on delete cascade,
@@ -171,7 +220,7 @@ create index if not exists group_members_user on public.group_members (user_id);
 
 -- ------------------------------------------------------------- constants ----
 
-create or replace function tyche_private.cfg(k text) returns numeric language sql immutable as $$
+create or replace function tyche_private.cfg_default(k text) returns numeric language sql immutable as $$
   select case k
     when 'min_stake' then 50
     when 'daily_free' then 10
@@ -195,7 +244,22 @@ create or replace function tyche_private.cfg(k text) returns numeric language sq
     when 'ad_cap_company_card_24h' then 2
     when 'ad_cap_company_any_day' then 5
     when 'ad_cap_card_24h' then 2
+    -- ads, added with the admin panel (0 = no limit where noted)
+    when 'ad_banner_enabled' then 1
+    when 'ad_card_enabled' then 1
+    when 'ad_banner_rotate_sec' then 20
+    when 'ad_banner_session_limit' then 0      -- banners per app session (0 = no limit)
+    when 'ad_banner_max_share_pct' then 100    -- max share of all banner impressions (24h) one company can take
+    when 'ad_banner_max_creatives' then 0      -- banner campaigns per company eligible at once (0 = no limit)
+    when 'ad_card_session_limit' then 0        -- sponsored cards per app session (0 = no limit)
+    when 'ad_card_min_minutes' then 0          -- minimum minutes between sponsored cards for one viewer
+    when 'ad_global_daily_limit' then 0        -- all ads (cards + banners) per viewer per day (0 = no limit)
   end
+$$;
+
+-- Live value: an override from tyche_private.settings (set in /admin), else the default above.
+create or replace function tyche_private.cfg(k text) returns numeric language sql stable as $$
+  select coalesce((select value from tyche_private.settings where key = k), tyche_private.cfg_default(k))
 $$;
 
 -- --------------------------------------------------------------- helpers ----
@@ -208,7 +272,34 @@ create or replace function tyche_private.me() returns uuid language plpgsql stab
 declare uid uuid := auth.uid();
 begin
   if uid is null then raise exception 'Not signed in' using errcode = '28000'; end if;
+  if exists (select 1 from tyche_private.account_status s where s.user_id = uid and s.suspended_at is not null) then
+    raise exception 'Your account is suspended. Contact support if you think this is a mistake.' using errcode = '42501';
+  end if;
   return uid;
+end $$;
+
+-- Restricted accounts can browse and chat but not create, join, vote on or settle games.
+create or replace function tyche_private.assert_can_play(uid uuid) returns void language plpgsql stable as $$
+begin
+  if exists (select 1 from tyche_private.account_status s where s.user_id = uid and s.restricted_at is not null) then
+    raise exception 'Your account can’t join or run games right now. Contact support if you think this is a mistake.' using errcode = '42501';
+  end if;
+end $$;
+
+-- Tags the points changes that follow in this transaction for the ledger.
+create or replace function tyche_private.pts(src text, ref uuid default null) returns void language plpgsql as $$
+begin
+  perform set_config('tyche.pts_src', src, true);
+  perform set_config('tyche.pts_ref', coalesce(ref::text, ''), true);
+end $$;
+
+-- Records app activity for daily/monthly active users (cheap: at most one write per 5 minutes).
+create or replace function tyche_private.touch(uid uuid) returns void language plpgsql as $$
+begin
+  insert into tyche_private.activity_days (day, user_id) values ((now() at time zone 'utc')::date, uid) on conflict do nothing;
+  insert into tyche_private.account_status (user_id, last_active_at) values (uid, now())
+  on conflict (user_id) do update set last_active_at = excluded.last_active_at
+  where tyche_private.account_status.last_active_at is null or tyche_private.account_status.last_active_at < now() - interval '5 minutes';
 end $$;
 
 create or replace function tyche_private.first_name(uid uuid) returns text language sql stable as $$
@@ -308,6 +399,7 @@ begin
     select coalesce(sum(points), 0) into winpool from public.entries where challenge_id = cid and option_id = win;
   end if;
   label := tyche_private.title(c);
+  perform tyche_private.pts('settle', cid);
   for e in select * from public.entries where challenge_id = cid loop
     if win is null then net := 0;
     elsif e.option_id <> win then net := -e.points;
@@ -577,14 +669,74 @@ end $$;
 drop trigger if exists on_auth_user_created on auth.users;
 create trigger on_auth_user_created after insert on auth.users for each row execute function tyche_private.handle_new_user();
 
+-- ------------------------------------------------------------ points ledger ----
+-- Every change to profiles.points is written to tyche_private.points_transactions in the
+-- same transaction, so the ledger can't drift from balances. Functions tag the source
+-- with tyche_private.pts(...); admin adjustments write their own rows (with reason + admin).
+create or replace function tyche_private.log_points() returns trigger language plpgsql security definer set search_path = public as $$
+begin
+  if coalesce(current_setting('tyche.pts_skip', true), '') = '1' then return null; end if;
+  if tg_op = 'INSERT' then
+    if new.points <> 0 then
+      insert into tyche_private.points_transactions (user_id, delta, balance_before, balance_after, source)
+      values (new.id, new.points, 0, new.points, 'signup');
+    end if;
+  elsif new.points is distinct from old.points then
+    insert into tyche_private.points_transactions (user_id, delta, balance_before, balance_after, source, challenge_id)
+    values (new.id, new.points - old.points, old.points, new.points,
+            coalesce(nullif(current_setting('tyche.pts_src', true), ''), 'app'),
+            nullif(current_setting('tyche.pts_ref', true), '')::uuid);
+  end if;
+  return null;
+end $$;
+drop trigger if exists profiles_points_ledger on public.profiles;
+create trigger profiles_points_ledger after insert or update of points on public.profiles
+  for each row execute function tyche_private.log_points();
+
+-- The ledger is append-only.
+create or replace function tyche_private.append_only() returns trigger language plpgsql as $$
+begin
+  raise exception '% is append-only', tg_table_name using errcode = '42501';
+end $$;
+drop trigger if exists points_tx_append_only on tyche_private.points_transactions;
+create trigger points_tx_append_only before update or delete on tyche_private.points_transactions
+  for each row execute function tyche_private.append_only();
+drop trigger if exists points_tx_no_truncate on tyche_private.points_transactions;
+create trigger points_tx_no_truncate before truncate on tyche_private.points_transactions
+  for each statement execute function tyche_private.append_only();
+
+-- First run: one opening-balance row per existing account so ledger totals match balances.
+insert into tyche_private.points_transactions (user_id, delta, balance_before, balance_after, source, reason)
+select p.id, p.points, 0, p.points, 'opening_balance', 'Balance when the ledger started'
+from public.profiles p
+where not exists (select 1 from tyche_private.points_transactions t where t.user_id = p.id);
+
+-- First run: rebuild past activity days from what's already in the database (safe to re-run).
+insert into tyche_private.activity_days (day, user_id)
+select distinct (t at time zone 'utc')::date, u from (
+  select id as u, created_at as t from public.profiles
+  union all select creator_id, created_at from public.challenges
+  union all select user_id, at from public.entries
+  union all select user_id, at from public.messages where user_id is not null and kind = 'chat'
+  union all select id, last_sign_in_at from auth.users where last_sign_in_at is not null
+) x
+where u is not null and t is not null and exists (select 1 from public.profiles p where p.id = x.u)
+on conflict do nothing;
+
 -- ================================================================ RPCs ======
 -- Everything below is callable from the app with supabase.rpc(...)
 
 -- Whole visible graph in the exact shape the app's store uses.
 create or replace function public.get_state() returns jsonb language plpgsql security definer set search_path = public as $$
-declare uid uuid := tyche_private.me();
+declare uid uuid := auth.uid();
 begin
+  if uid is null then raise exception 'Not signed in' using errcode = '28000'; end if;
+  -- suspended accounts get a flag instead of data; the app shows a "suspended" screen
+  if exists (select 1 from tyche_private.account_status s where s.user_id = uid and s.suspended_at is not null) then
+    return jsonb_build_object('version', 2, 'meId', uid, 'suspended', true);
+  end if;
   perform tyche_private.ensure_profile(uid);
+  perform tyche_private.touch(uid);
   perform tyche_private.tick();
   return jsonb_build_object(
     'version', 2,
@@ -700,6 +852,7 @@ declare
   n nights;
   prop_meta jsonb := p -> 'prop';
 begin
+  perform tyche_private.assert_can_play(uid);
   if nid is not null then
     select * into n from nights where id = nid;
     if not found or not exists (select 1 from night_members where night_id = nid and user_id = uid) then raise exception 'You are not in that Game Night'; end if;
@@ -743,6 +896,7 @@ begin
       if c.prop ->> 'kind' = 'wild' then stake := tyche_private.cfg('wild_stake')::int; end if;
       if c.prop ->> 'kind' is distinct from 'wild' and stake < tyche_private.cfg('min_stake') then raise exception 'Minimum stake is % pts', tyche_private.cfg('min_stake'); end if;
       if stake > bal then raise exception 'Not enough points'; end if;
+      perform tyche_private.pts('stake', cid);
       update profiles set points = points - stake where id = uid;
     end if;
     insert into entries (challenge_id, user_id, option_id, points) values (cid, uid, my_opt, stake);
@@ -768,6 +922,7 @@ declare
   bal int;
   stake int := pts;
 begin
+  perform tyche_private.assert_can_play(uid);
   if not tyche_private.can_see(c, uid) then raise exception 'Challenge not found'; end if;
   if c.status <> 'open' or c.closes_at <= now() then raise exception 'Joining is closed'; end if;
   if not tyche_private.has_option(c, oid) then raise exception 'Unknown option'; end if;
@@ -782,6 +937,7 @@ begin
     if c.prop ->> 'kind' is distinct from 'wild' and stake < tyche_private.cfg('min_stake') then raise exception 'Minimum stake is % pts', tyche_private.cfg('min_stake'); end if;
     if stake > bal then raise exception 'Not enough points'; end if;
   end if;
+  perform tyche_private.pts('stake', cid);
   update profiles set points = bal - stake where id = uid;
   insert into entries (challenge_id, user_id, option_id, points) values (cid, uid, oid, stake)
     on conflict (challenge_id, user_id) do update set option_id = excluded.option_id, points = excluded.points, at = clock_timestamp();
@@ -881,6 +1037,7 @@ end $$;
 create or replace function public.submit_result(cid uuid, oid text, val numeric default null, evidence text default null) returns void language plpgsql security definer set search_path = public as $$
 declare uid uuid := tyche_private.me(); c challenges := tyche_private.lock(cid); u uuid;
 begin
+  perform tyche_private.assert_can_play(uid);
   if c.creator_id <> uid then raise exception 'Only the creator submits the result'; end if;
   if c.status not in ('live', 'review', 'vote') then raise exception 'Start the event first'; end if;
   if oid <> '__tie' and not tyche_private.has_option(c, oid) then raise exception 'Unknown option'; end if;
@@ -934,6 +1091,7 @@ end $$;
 create or replace function public.cast_vote(cid uuid, oid text) returns void language plpgsql security definer set search_path = public as $$
 declare uid uuid := tyche_private.me(); c challenges := tyche_private.lock(cid); changed boolean;
 begin
+  perform tyche_private.assert_can_play(uid);
   if c.status <> 'vote' or c.vote is null then raise exception 'Voting isn’t open'; end if;
   if not uid = any (tyche_private.voters(c)) then raise exception 'Only participants can vote'; end if;
   if not oid = any (tyche_private.vote_choices(c, uid)) then raise exception 'You can’t vote for that option'; end if;
@@ -1015,6 +1173,7 @@ begin
   if p.last_claim_at is not null and p.last_claim_at >= day_start then raise exception 'Already claimed today'; end if;
   amount := case when tyche_private.is_plus(uid) then tyche_private.cfg('daily_plus') else tyche_private.cfg('daily_free') end;
   streak := case when p.last_claim_at >= day_start - interval '1 day' then p.claim_streak + 1 else 1 end;
+  perform tyche_private.pts('daily_claim');
   update profiles set points = points + amount, last_claim_at = now(), claim_streak = streak where id = uid;
   return jsonb_build_object('amount', amount, 'streak', streak);
 end $$;
@@ -1028,6 +1187,7 @@ begin
   select * into p from profiles where id = uid for update;
   trial_end := case when p.trial_used then null else tyche_private.ms(now() + make_interval(days => tyche_private.cfg('trial_days')::int)) end;
   period_days := case when plan = 'yearly' then 365 else 30 end;
+  perform tyche_private.pts('plus_topup');
   update profiles set
     trial_used = true,
     plus = jsonb_strip_nulls(jsonb_build_object('plan', plan, 'startedAt', tyche_private.ms(now()), 'trialEndsAt', trial_end,
@@ -1080,6 +1240,7 @@ $$;
 create or replace function public.create_night(nid uuid, nname text, ndata jsonb, members uuid[]) returns uuid language plpgsql security definer set search_path = public as $$
 declare uid uuid := tyche_private.me(); m uuid;
 begin
+  perform tyche_private.assert_can_play(uid);
   insert into nights (id, host_id, name, data) values (coalesce(nid, gen_random_uuid()), uid, left(trim(nname), 60), tyche_private.clean_night_data(ndata)) returning id into nid;
   insert into night_members (night_id, user_id) values (nid, uid);
   foreach m in array coalesce(members, '{}') loop
@@ -1136,6 +1297,7 @@ create or replace function public.night_remove_prop(cid uuid) returns void langu
 declare c challenges := tyche_private.prop_host(cid); e record;
 begin
   if c.status = 'settled' then raise exception 'Already settled — re-settle it instead'; end if;
+  perform tyche_private.pts('refund', cid);
   for e in select * from entries where challenge_id = cid loop
     update profiles set points = points + e.points where id = e.user_id;
   end loop;
@@ -1181,6 +1343,7 @@ declare c challenges := tyche_private.prop_host(cid); e record; net int;
 begin
   if c.status <> 'settled' then raise exception 'Not settled yet'; end if;
   if oid <> '__tie' and not tyche_private.has_option(c, oid) then raise exception 'Unknown option'; end if;
+  perform tyche_private.pts('resettle', cid);
   for e in select * from entries where challenge_id = cid loop
     net := coalesce((c.result -> 'payouts' ->> e.user_id::text)::int, 0);
     if net >= 0 then update profiles set points = greatest(0, points - (e.points + net)) where id = e.user_id; end if;
@@ -1274,6 +1437,7 @@ end $$;
 create or replace function public.delete_account_prepare(uid uuid) returns void
 language plpgsql security definer set search_path = public as $$
 begin
+  perform tyche_private.pts('refund');
   update profiles p set points = p.points + r.total
   from (
     select e.user_id, sum(e.points)::int as total
@@ -1312,14 +1476,63 @@ create table if not exists public.ad_campaigns (
   created_at timestamptz not null default now()
 );
 
+-- Campaign priority (set in /admin). Weighs which eligible campaign gets a placement;
+-- it never overrides dates, remaining impressions, pacing, advertiser status or caps.
+alter table public.ad_campaigns add column if not exists priority text not null default 'normal';
+alter table public.ad_campaigns drop constraint if exists ad_campaigns_priority_check;
+alter table public.ad_campaigns add constraint ad_campaigns_priority_check check (priority in ('normal', 'high', 'urgent'));
+-- 'canceled' ends a campaign for good (history is kept).
+alter table public.ad_campaigns drop constraint if exists ad_campaigns_status_check;
+alter table public.ad_campaigns add constraint ad_campaigns_status_check check (status in ('active', 'paused', 'canceled'));
+
+-- ends_at follows starts_at + duration_days, unless it was set explicitly (admin date edits).
 create or replace function tyche_private.ad_set_end() returns trigger language plpgsql as $$
 begin
-  new.ends_at := new.starts_at + make_interval(days => new.duration_days);
+  if tg_op = 'INSERT' then
+    if new.ends_at is null then new.ends_at := new.starts_at + make_interval(days => new.duration_days); end if;
+  elsif new.ends_at is not distinct from old.ends_at then
+    new.ends_at := new.starts_at + make_interval(days => new.duration_days);
+  end if;
   return new;
 end $$;
 drop trigger if exists ad_set_end on public.ad_campaigns;
 create trigger ad_set_end before insert or update of starts_at, duration_days on public.ad_campaigns
   for each row execute function tyche_private.ad_set_end();
+
+-- Advertisers. Linked to campaigns by name (ad_campaigns.advertiser), so adding a campaign
+-- in the Table Editor with a new company name creates the advertiser automatically.
+-- Pausing or suspending an advertiser stops all of its ads; nothing is deleted.
+create table if not exists public.ad_advertisers (
+  id uuid primary key default gen_random_uuid(),
+  name text not null unique check (char_length(trim(name)) between 1 and 80),
+  contact_name text,
+  contact_email text,
+  contact_phone text,
+  website text,
+  notes text,
+  status text not null default 'active' check (status in ('active', 'paused', 'suspended')),
+  status_reason text,
+  created_at timestamptz not null default now()
+);
+insert into public.ad_advertisers (name) select distinct trim(advertiser) from public.ad_campaigns on conflict (name) do nothing;
+update public.ad_campaigns set advertiser = trim(advertiser) where advertiser <> trim(advertiser);
+
+create or replace function tyche_private.ad_ensure_advertiser() returns trigger language plpgsql security definer set search_path = public as $$
+begin
+  new.advertiser := trim(new.advertiser);
+  insert into public.ad_advertisers (name) values (new.advertiser) on conflict (name) do nothing;
+  return new;
+end $$;
+drop trigger if exists ad_ensure_advertiser on public.ad_campaigns;
+create trigger ad_ensure_advertiser before insert or update of advertiser on public.ad_campaigns
+  for each row execute function tyche_private.ad_ensure_advertiser();
+do $$
+begin
+  if not exists (select 1 from pg_constraint where conname = 'ad_campaigns_advertiser_fkey') then
+    alter table public.ad_campaigns add constraint ad_campaigns_advertiser_fkey
+      foreign key (advertiser) references public.ad_advertisers (name) on update cascade;
+  end if;
+end $$;
 
 create table if not exists public.ad_events (
   id bigint generated always as identity primary key,
@@ -1329,12 +1542,17 @@ create table if not exists public.ad_events (
   format text not null check (format in ('card', 'banner')),
   at timestamptz not null default clock_timestamp()
 );
+-- app session the event happened in (for per-session caps); null from older app versions
+alter table public.ad_events add column if not exists session_id uuid;
 create index if not exists ad_events_user_at on public.ad_events (user_id, at desc);
 create index if not exists ad_events_campaign on public.ad_events (campaign_id, kind);
+create index if not exists ad_events_session on public.ad_events (session_id) where session_id is not null;
+create index if not exists ad_events_at on public.ad_events (at);
 
 alter table public.ad_campaigns enable row level security;
 alter table public.ad_events enable row level security;
-revoke all on public.ad_campaigns, public.ad_events from anon, authenticated;
+alter table public.ad_advertisers enable row level security;
+revoke all on public.ad_campaigns, public.ad_events, public.ad_advertisers from anon, authenticated;
 
 -- Start of "today" in the viewer's time zone.
 create or replace function tyche_private.ad_day_start(tz text) returns timestamptz language plpgsql stable as $$
@@ -1344,8 +1562,9 @@ exception when others then
   return date_trunc('day', now());
 end $$;
 
--- Frequency caps for one viewer + campaign + format. true = may show.
-create or replace function tyche_private.ad_under_caps(uid uuid, c public.ad_campaigns, fmt text, day_start timestamptz) returns boolean
+-- Per-company and per-creative frequency caps for one viewer. true = may show.
+drop function if exists tyche_private.ad_under_caps(uuid, public.ad_campaigns, text, timestamptz);
+create or replace function tyche_private.ad_under_caps(uid uuid, cid uuid, company text, fmt text, day_start timestamptz) returns boolean
 language sql stable set search_path = public as $$
   with seen as (
     select e.campaign_id, a.advertiser, e.format, e.at
@@ -1353,11 +1572,31 @@ language sql stable set search_path = public as $$
     where e.user_id = uid and e.kind = 'impression' and e.at > least(day_start, now() - interval '24 hours')
   )
   select
-    (fmt <> 'banner' or (select count(*) from seen where advertiser = c.advertiser and format = 'banner' and at >= day_start) < tyche_private.cfg('ad_cap_company_banner_day'))
-    and (fmt <> 'card' or (select count(*) from seen where advertiser = c.advertiser and format = 'card' and at > now() - interval '24 hours') < tyche_private.cfg('ad_cap_company_card_24h'))
-    and (fmt <> 'card' or (select count(*) from seen where campaign_id = c.id and format = 'card' and at > now() - interval '24 hours') < tyche_private.cfg('ad_cap_card_24h'))
-    and (select count(*) from seen where advertiser = c.advertiser and at >= day_start) < tyche_private.cfg('ad_cap_company_any_day')
+    (fmt <> 'banner' or (select count(*) from seen where advertiser = company and format = 'banner' and at >= day_start) < tyche_private.cfg('ad_cap_company_banner_day'))
+    and (fmt <> 'card' or (select count(*) from seen where advertiser = company and format = 'card' and at > now() - interval '24 hours') < tyche_private.cfg('ad_cap_company_card_24h'))
+    and (fmt <> 'card' or (select count(*) from seen where campaign_id = cid and format = 'card' and at > now() - interval '24 hours') < tyche_private.cfg('ad_cap_card_24h'))
+    and (select count(*) from seen where advertiser = company and at >= day_start) < tyche_private.cfg('ad_cap_company_any_day')
 $$;
+
+-- Viewer-level limits that don't depend on the campaign: placement on/off, all-ads daily
+-- limit, per-session limits, minimum time between sponsored cards. true = may show.
+create or replace function tyche_private.ad_viewer_ok(uid uuid, fmt text, day_start timestamptz, sid uuid) returns boolean
+language plpgsql stable set search_path = public as $$
+declare lim numeric;
+begin
+  if tyche_private.cfg(case fmt when 'card' then 'ad_card_enabled' else 'ad_banner_enabled' end) < 1 then return false; end if;
+  lim := tyche_private.cfg('ad_global_daily_limit');
+  if lim > 0 and (select count(*) from ad_events where user_id = uid and kind = 'impression' and at >= day_start) >= lim then return false; end if;
+  lim := tyche_private.cfg(case fmt when 'card' then 'ad_card_session_limit' else 'ad_banner_session_limit' end);
+  if lim > 0 and sid is not null
+     and (select count(*) from ad_events where session_id = sid and user_id = uid and kind = 'impression' and format = fmt) >= lim then return false; end if;
+  if fmt = 'card' then
+    lim := tyche_private.cfg('ad_card_min_minutes');
+    if lim > 0 and exists (select 1 from ad_events where user_id = uid and kind = 'impression' and format = 'card'
+                           and at > now() - make_interval(mins => lim::int)) then return false; end if;
+  end if;
+  return true;
+end $$;
 
 -- Pacing: where a campaign *should* be by now if its impressions were spread evenly.
 create or replace function tyche_private.ad_target(c public.ad_campaigns) returns numeric language sql stable as $$
@@ -1369,17 +1608,27 @@ create or replace function tyche_private.ad_delivered(cid uuid) returns int lang
   select count(*)::int from public.ad_events where campaign_id = cid and kind = 'impression'
 $$;
 
+create or replace function tyche_private.ad_priority_weight(p text) returns numeric language sql immutable as $$
+  select case p when 'urgent' then 4 when 'high' then 2 else 1 end::numeric
+$$;
+
 -- Picks the campaign to show in one placement, or null if nothing should show.
 --   fmt: 'card' | 'banner';  organic_seen: organic posts the viewer has seen since the last
---   sponsored card (cards only);  exclude: campaigns already on screen.
-create or replace function public.ad_pick(fmt text, organic_seen int default 0, tz text default 'UTC', exclude uuid[] default '{}')
+--   sponsored card (cards only);  exclude: campaigns already on screen;  sid: app session id.
+drop function if exists public.ad_pick(text, int, text, uuid[]);
+create or replace function public.ad_pick(fmt text, organic_seen int default 0, tz text default 'UTC', exclude uuid[] default '{}', sid uuid default null)
 returns jsonb language plpgsql security definer set search_path = public as $$
 declare
   uid uuid := tyche_private.me();
   day_start timestamptz := tyche_private.ad_day_start(tz);
+  share_cap numeric := tyche_private.cfg('ad_banner_max_share_pct');
+  max_creatives int := tyche_private.cfg('ad_banner_max_creatives')::int;
+  pick uuid;
   c ad_campaigns;
 begin
   if fmt not in ('card', 'banner') then return null; end if;
+  -- 1. placement on? viewer under daily / session / spacing limits?
+  if not tyche_private.ad_viewer_ok(uid, fmt, day_start, sid) then return null; end if;
   if fmt = 'card' then
     -- 2. enough organic posts? under the daily sponsored-card limit?
     if organic_seen < tyche_private.cfg('ad_card_gap') and exists (
@@ -1390,48 +1639,83 @@ begin
        >= tyche_private.cfg('ad_card_daily_limit') then return null; end if;
   end if;
 
-  -- 3. eligible campaigns  4. weighted by how far behind schedule they are
-  select a.* into c
-  from ad_campaigns a
-  cross join lateral (select tyche_private.ad_delivered(a.id) as done, tyche_private.ad_target(a) as target,
-                             greatest(3, a.impressions_purchased * 0.01) as slack) d
-  where a.status = 'active' and now() >= a.starts_at and now() < a.ends_at
-    and d.done < a.impressions_purchased
-    and d.done < d.target + d.slack                        -- don't run ahead of the even pace
-    and not (a.id = any(coalesce(exclude, '{}')))
-    and case fmt when 'card' then a.card_question is not null and jsonb_array_length(a.card_options) = 2
-                 else a.banner_text is not null end
-    and tyche_private.ad_under_caps(uid, a, fmt, day_start)
-  order by random() ^ (1.0 / greatest(0.0001, (d.target + d.slack - d.done) / a.impressions_purchased)) desc
+  -- 3. eligible campaigns (running, advertiser active, not ahead of pace, creative present)
+  -- 4. weighted by how far behind schedule they are × priority
+  with live as (
+    select a.id, a.advertiser, a.priority, a.created_at, a.impressions_purchased, d.done, d.target, d.slack
+    from ad_campaigns a
+    join ad_advertisers v on v.name = a.advertiser and v.status = 'active'
+    cross join lateral (select tyche_private.ad_delivered(a.id) as done, tyche_private.ad_target(a) as target,
+                               greatest(3, a.impressions_purchased * 0.01) as slack) d
+    where a.status = 'active' and now() >= a.starts_at and now() < a.ends_at
+      and d.done < a.impressions_purchased
+      and d.done < d.target + d.slack                        -- don't run ahead of the even pace
+      and not (a.id = any(coalesce(exclude, '{}')))
+      and case fmt when 'card' then a.card_question is not null and jsonb_array_length(a.card_options) = 2
+                   else a.banner_text is not null end
+  ),
+  ranked as (
+    select l.*, row_number() over (partition by l.advertiser
+             order by tyche_private.ad_priority_weight(l.priority) desc, (l.target + l.slack - l.done) / l.impressions_purchased desc, l.created_at) as creative_rank
+    from live l
+  ),
+  shares as (   -- banner share of voice over the last 24h
+    select a.advertiser, count(*)::numeric as n, sum(count(*)) over () as total
+    from ad_events e join ad_campaigns a on a.id = e.campaign_id
+    where fmt = 'banner' and share_cap < 100 and e.kind = 'impression' and e.format = 'banner' and e.at > now() - interval '24 hours'
+    group by a.advertiser
+  )
+  select r.id into pick
+  from ranked r
+  where (fmt <> 'banner' or max_creatives <= 0 or r.creative_rank <= max_creatives)
+    and (fmt <> 'banner' or share_cap >= 100 or not exists (
+          select 1 from shares s where s.advertiser = r.advertiser and s.total >= 50 and s.n * 100 / s.total >= share_cap))
+    and tyche_private.ad_under_caps(uid, r.id, r.advertiser, fmt, day_start)
+  order by random() ^ (1.0 / greatest(0.0001, tyche_private.ad_priority_weight(r.priority) * (r.target + r.slack - r.done) / r.impressions_purchased)) desc
   limit 1;
 
-  if c.id is null then return null; end if;
+  if pick is null then return null; end if;
+  select * into c from ad_campaigns where id = pick;
   return jsonb_build_object('id', c.id, 'sponsor', c.advertiser, 'logo', c.logo, 'tint', c.tint, 'url', c.url, 'domain', c.domain,
     'question', c.card_question, 'options', c.card_options, 'cta', c.card_cta, 'banner', c.banner_text);
 end $$;
 
 -- 5. Records a viewable impression (≥50% on screen for 1s) or a click.
 --    Impressions are re-checked against caps and remaining delivery, so they can't be inflated.
-create or replace function public.ad_record(cid uuid, fmt text, ev text, tz text default 'UTC') returns boolean
+drop function if exists public.ad_record(uuid, text, text, text);
+create or replace function public.ad_record(cid uuid, fmt text, ev text, tz text default 'UTC', sid uuid default null) returns boolean
 language plpgsql security definer set search_path = public as $$
 declare
   uid uuid := tyche_private.me();
+  day_start timestamptz := tyche_private.ad_day_start(tz);
   c ad_campaigns;
 begin
   if fmt not in ('card', 'banner') or ev not in ('impression', 'click') then return false; end if;
   select * into c from ad_campaigns where id = cid for update;   -- serialize the remaining-count check
   if not found then return false; end if;
   if ev = 'impression' then
-    if c.status <> 'active' or now() >= c.ends_at or tyche_private.ad_delivered(cid) >= c.impressions_purchased then return false; end if;
-    if not tyche_private.ad_under_caps(uid, c, fmt, tyche_private.ad_day_start(tz)) then return false; end if;
+    if c.status <> 'active' or now() < c.starts_at or now() >= c.ends_at or tyche_private.ad_delivered(cid) >= c.impressions_purchased then return false; end if;
+    if not exists (select 1 from ad_advertisers v where v.name = c.advertiser and v.status = 'active') then return false; end if;
+    if not tyche_private.ad_viewer_ok(uid, fmt, day_start, sid) then return false; end if;
+    if not tyche_private.ad_under_caps(uid, c.id, c.advertiser, fmt, day_start) then return false; end if;
   else
     -- a click needs a recent impression, and counts once per hour per viewer
     if not exists (select 1 from ad_events where campaign_id = cid and user_id = uid and kind = 'impression' and at > now() - interval '24 hours') then return false; end if;
     if exists (select 1 from ad_events where campaign_id = cid and user_id = uid and kind = 'click' and at > now() - interval '1 hour') then return false; end if;
   end if;
-  insert into ad_events (campaign_id, user_id, kind, format) values (cid, uid, ev, fmt);
+  insert into ad_events (campaign_id, user_id, kind, format, session_id) values (cid, uid, ev, fmt, sid);
   return true;
 end $$;
+
+-- Ad settings the app needs on the device (set in /admin → Ad settings; no redeploy needed).
+create or replace function public.ad_config() returns jsonb language sql stable security definer set search_path = public as $$
+  select jsonb_build_object(
+    'bannerEnabled', tyche_private.cfg('ad_banner_enabled') >= 1,
+    'cardEnabled', tyche_private.cfg('ad_card_enabled') >= 1,
+    'cardMinOrganic', tyche_private.cfg('ad_card_min_organic'),
+    'cardGap', tyche_private.cfg('ad_card_gap'),
+    'bannerRotateMs', tyche_private.cfg('ad_banner_rotate_sec') * 1000)
+$$;
 
 -- Campaign reporting (only you can read it: Table Editor or SQL Editor).
 create or replace view public.ad_report with (security_invoker = true) as
