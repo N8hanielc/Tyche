@@ -290,6 +290,7 @@ export interface DB {
   meId: ID;
   users: Record<ID, User>;
   following: ID[]; // who "me" follows
+  followerIds?: ID[]; // who follows "me" (newest first)
   challenges: Challenge[];
   messages: Message[];
   notifications: Notification[];
@@ -297,5 +298,5 @@ export interface DB {
   lastRead: Record<ID, number>; // challengeId -> timestamp the room was last opened
   nights?: Night[];
   // per-account copies of `following` / `lastRead`, swapped in when the signed-in user changes
-  saved?: Record<ID, { following: ID[]; lastRead: Record<ID, number> }>;
+  saved?: Record<ID, { following: ID[]; lastRead: Record<ID, number>; followerIds?: ID[] }>;
 }

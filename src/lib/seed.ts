@@ -40,7 +40,7 @@ export function seed(): DB {
   crowdNames.forEach(([u, n, img], i) => users.push(user(`c${i + 1}`, u, n, img, (i * 37) % 360, { followers: 40 + i * 13, following: 80 })));
 
   const db: DB = {
-    version: 3,
+    version: 4,
     meId: ME,
     users: Object.fromEntries(users.map((u) => [u.id, u])),
     following: ["u_marcus", "u_jordan", "u_mya", "u_chris", "u_dani", "u_kev", "u_hoops", "u_sol"],
@@ -263,6 +263,11 @@ export function seed(): DB {
   chat("ch_wings", "u_chris", "my soul left my body at wing 7", 8480);
 
   db.messages = msgs;
+
+  // who follows the demo account (counts match the lists so the screens add up)
+  db.followerIds = ["u_mya", "u_marcus", "u_jordan", "u_chris", "u_dani", "u_kev", "u_tess", "u_tariq"];
+  db.users[ME].followers = db.followerIds.length;
+  db.users[ME].following = db.following.length;
 
   const gn = seedNight(T, ME);
   db.nights = [gn.night];

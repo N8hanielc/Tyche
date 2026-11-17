@@ -577,6 +577,7 @@ begin
         'trialUsed', p.trial_used, 'cardTheme', p.card_theme, 'onboarded', p.onboarded)))
       from profiles p), '{}'),
     'following', coalesce((select jsonb_agg(followee) from follows where follower = uid), '[]'),
+    'followerIds', coalesce((select jsonb_agg(follower order by created_at desc) from follows where followee = uid), '[]'),
     'challenges', coalesce((select jsonb_agg(jsonb_strip_nulls(jsonb_build_object(
         'id', c.id, 'creatorId', c.creator_id, 'createdAt', tyche_private.ms(c.created_at), 'category', c.category,
         'question', c.question, 'title', c.title, 'description', c.description, 'media', c.media, 'format', c.format,

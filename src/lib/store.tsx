@@ -631,9 +631,10 @@ function makeActions(mutate: (fn: Mutator) => void, later: (ms: number, fn: Muta
         }
         if (db.meId !== p.id) {
           db.saved ??= {};
-          db.saved[db.meId] = { following: db.following, lastRead: db.lastRead };
+          db.saved[db.meId] = { following: db.following, lastRead: db.lastRead, followerIds: db.followerIds };
           const next = db.saved[p.id];
           db.following = next?.following ?? p.follows ?? [];
+          db.followerIds = next?.followerIds ?? [];
           db.lastRead = next?.lastRead ?? {};
           db.meId = p.id;
         }

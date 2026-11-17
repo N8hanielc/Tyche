@@ -147,16 +147,27 @@ export function ProfileScreen({ userId }: { userId?: string }) {
               <Avatar user={u} size={84} className="ring-4 ring-card" />
             </div>
             <div className="flex flex-1 justify-around pb-1 text-center">
-              {[
-                ["Followers", u.followers],
-                ["Following", u.following],
-                ["Challenges", totalChallenges + u.baseWins + u.baseLosses],
-              ].map(([k, v]) => (
-                <div key={k as string}>
-                  <div className="font-display text-[19px] font-extrabold tabular">{(v as number).toLocaleString()}</div>
-                  <div className="text-[11px] text-muted">{k}</div>
-                </div>
-              ))}
+              {(
+                [
+                  ["Followers", isMe && db.followerIds ? db.followerIds.length : u.followers, "followers"],
+                  ["Following", isMe ? db.following.length : u.following, "following"],
+                  ["Challenges", totalChallenges + u.baseWins + u.baseLosses, null],
+                ] as [string, number, "followers" | "following" | null][]
+              ).map(([k, v, list]) => {
+                const inner = (
+                  <>
+                    <div className="font-display text-[19px] font-extrabold tabular">{v.toLocaleString()}</div>
+                    <div className="text-[11px] text-muted">{k}</div>
+                  </>
+                );
+                return isMe && list ? (
+                  <button key={k} onClick={() => nav.push({ kind: "follows", tab: list })} className="rounded-xl px-1 active:scale-95">
+                    {inner}
+                  </button>
+                ) : (
+                  <div key={k}>{inner}</div>
+                );
+              })}
             </div>
           </div>
           <div className="relative mt-4">

@@ -19,6 +19,7 @@ import { NotificationsScreen } from "@/screens/Notifications";
 import { LeaderboardScreen } from "@/screens/Leaderboard";
 import { PlusScreen } from "@/screens/Plus";
 import { NewNightScreen, NightScreen } from "@/screens/GameNight";
+import { FollowsScreen } from "@/screens/Follows";
 
 function Overlay({ s, index }: { s: Screen; index: number }) {
   let node: React.ReactNode = null;
@@ -49,6 +50,9 @@ function Overlay({ s, index }: { s: Screen; index: number }) {
       break;
     case "nightNew":
       node = <NewNightScreen />;
+      break;
+    case "follows":
+      node = <FollowsScreen tab={s.tab} />;
       break;
   }
   return (
