@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { REMOTE } from "@/lib/supabase";
+import { cx } from "@/lib/utils";
 import { StoreProvider, useStore } from "@/lib/store";
 import { AuthProvider, useAuth } from "@/lib/auth";
 import { AuthScreens, Onboarding } from "@/screens/Auth";
@@ -183,11 +184,37 @@ function RecoverySheet() {
   );
 }
 
+/** Logo-only loading screen for the first 3 seconds after the app opens. The app loads underneath it. */
+function Splash() {
+  const [phase, setPhase] = useState<"show" | "fade" | "gone">("show");
+  useEffect(() => {
+    const fade = setTimeout(() => setPhase("fade"), 3000);
+    const gone = setTimeout(() => setPhase("gone"), 3400);
+    return () => {
+      clearTimeout(fade);
+      clearTimeout(gone);
+    };
+  }, []);
+  if (phase === "gone") return null;
+  return (
+    <div
+      aria-hidden
+      className={cx("fixed inset-0 z-[100] grid place-items-center bg-ink transition-opacity duration-[400ms] ease-out", phase === "fade" && "pointer-events-none opacity-0")}
+    >
+      <div className="relative grid place-items-center">
+        <div className="absolute h-44 w-44 rounded-full bg-brand/25 blur-3xl" />
+        <LogoMark size={96} className="relative animate-pop" />
+      </div>
+    </div>
+  );
+}
+
 export function TycheApp() {
   return (
     <AuthProvider>
       <StoreProvider>
         <Gate />
+        <Splash />
       </StoreProvider>
     </AuthProvider>
   );

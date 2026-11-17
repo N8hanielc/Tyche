@@ -8,7 +8,7 @@ for f in glob.glob(f'{root}/src/**/*.ts*', recursive=True):
             n = n.strip().split(' as ')[0].strip()
             if n: names.add(n)
 d = open('/opt/npm-tools/node_modules/react-icons/lu/index.d.ts').read()
-alias = {'AlertTriangle': 'TriangleAlert', 'BarChart3': 'ChartColumn', 'MoreHorizontal': 'Ellipsis'}
+alias = {'AlertTriangle': 'TriangleAlert', 'BarChart3': 'ChartColumn', 'MoreHorizontal': 'Ellipsis', 'CheckCircle2': 'CircleCheck', 'Home': 'House', 'Loader2': 'LoaderCircle', 'PauseCircle': 'CirclePause', 'Unlock': 'LockOpen', 'XCircle': 'CircleX'}
 mp = {n: alias.get(n, n) for n in sorted(names)}
 missing = [n for n, b in mp.items() if f'export declare const Lu{b}:' not in d]
 assert not missing, missing
