@@ -491,6 +491,9 @@ declare
 begin
   if wanted ~ '^[a-z0-9._]{3,20}$' and not exists (select 1 from public.profiles where username = wanted) then
     uname := wanted;
+  elsif wanted is not null and not social then
+    -- email sign-up picked a name that's taken: fail so the app can say so
+    raise exception 'username_taken' using errcode = '23505';
   else
     uname := tyche_private.unique_username(coalesce(nullif(regexp_replace(display, '\s', '', 'g'), 'Newplayer'), email_name));
   end if;

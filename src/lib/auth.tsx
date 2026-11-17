@@ -38,7 +38,8 @@ export interface AuthService {
   getSession(): Session | null | Promise<Session | null>;
   /** Subscribe to sign-in/out and password-recovery events; returns an unsubscribe fn. */
   onChange?(cb: (s: Session | null, event?: string) => void): () => void;
-  usernameAvailable?(username: string): Promise<boolean>;
+  /** true = free, false = taken, null = couldn't check (don't block the user). */
+  usernameAvailable?(username: string): Promise<boolean | null>;
   /** Google / Apple sign-in (redirects away and back). */
   oauth?(provider: "google" | "apple"): Promise<void>;
   /** Which social providers are switched on in Supabase. */
@@ -187,7 +188,11 @@ export const supabaseAuth: AuthService | null = supabase
       usernameTaken: () => false,
       async usernameAvailable(u) {
         const { data, error } = await supabase!.rpc("username_available", { u });
-        return !error && !!data;
+        if (error) {
+          console.warn("Tyche: username check failed", error.message);
+          return null;
+        }
+        return data === true;
       },
       async signUp({ email, password, profile }) {
         const { data, error } = await supabase!.auth.signUp({

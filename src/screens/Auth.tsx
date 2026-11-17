@@ -311,7 +311,7 @@ function SignUp({ go }: { go: (v: View) => void }) {
   const [bio, setBio] = useState("");
   const [follows, setFollows] = useState<string[]>(auth.service.remote ? [] : ["u_nate", "u_marcus", "u_mya"]);
   const [remotePeople, setRemotePeople] = useState<User[] | null>(null);
-  const [remoteTaken, setRemoteTaken] = useState<Record<string, boolean>>({});
+  const [remoteTaken, setRemoteTaken] = useState<Record<string, boolean | null>>({});
   const [agree, setAgree] = useState(false);
   const [err, setErr] = useState<{ field: string; msg: string } | null>(null);
   const [busy, setBusy] = useState(false);
@@ -327,7 +327,7 @@ function SignUp({ go }: { go: (v: View) => void }) {
   useEffect(() => {
     const avail = auth.service.usernameAvailable;
     if (!auth.service.remote || !avail || !unameValid || uname in remoteTaken) return;
-    const t = setTimeout(() => avail(uname).then((ok) => setRemoteTaken((m) => ({ ...m, [uname]: !ok }))), 350);
+    const t = setTimeout(() => avail(uname).then((ok) => setRemoteTaken((m) => ({ ...m, [uname]: ok === null ? null : !ok }))), 350);
     return () => clearTimeout(t);
   }, [uname, unameValid, remoteTaken, auth.service]);
 
@@ -433,8 +433,20 @@ function SignUp({ go }: { go: (v: View) => void }) {
             onChange={(e) => setUsername(e.target.value.replace(/\s/g, "").toLowerCase())}
             placeholder="username"
             error={err?.field === "username" ? err.msg : undefined}
-            hint={uname.length >= 3 ? (unameTaken ? <span className="text-loss">@{uname} is taken</span> : unameValid ? <span className="text-win">@{uname} is available</span> : "Letters, numbers, . or _") : undefined}
-            right={uname.length >= 3 && unameValid && !unameTaken ? <Check size={18} className="text-win" /> : undefined}
+            hint={
+              uname.length < 3
+                ? undefined
+                : !unameValid
+                  ? "Letters, numbers, . or _"
+                  : unameTaken
+                    ? <span className="text-loss">@{uname} is taken</span>
+                    : auth.service.remote && remoteTaken[uname] === undefined
+                      ? "Checking…"
+                      : auth.service.remote && remoteTaken[uname] === null
+                        ? "We’ll confirm @" + uname + " when you finish"
+                        : <span className="text-win">@{uname} is available</span>
+            }
+            right={uname.length >= 3 && unameValid && !unameTaken && (!auth.service.remote || remoteTaken[uname] === false) ? <Check size={18} className="text-win" /> : undefined}
           />
           <label className="block">
             <span className="mb-1.5 block text-[12px] font-bold uppercase tracking-[0.12em] text-dim">
@@ -507,7 +519,7 @@ export function Onboarding() {
   const [avatar, setAvatar] = useState<string | undefined>(me.avatar);
   const [people, setPeople] = useState<User[] | null>(null);
   const [follows, setFollows] = useState<string[]>([]);
-  const [taken, setTaken] = useState<Record<string, boolean>>({});
+  const [taken, setTaken] = useState<Record<string, boolean | null>>({});
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
   const file = useRef<HTMLInputElement>(null);
@@ -522,7 +534,7 @@ export function Onboarding() {
   useEffect(() => {
     const avail = auth.service.usernameAvailable;
     if (!avail || !valid || uname === me.username || uname in taken) return;
-    const t = setTimeout(() => avail(uname).then((ok) => setTaken((m) => ({ ...m, [uname]: !ok }))), 350);
+    const t = setTimeout(() => avail(uname).then((ok) => setTaken((m) => ({ ...m, [uname]: ok === null ? null : !ok }))), 350);
     return () => clearTimeout(t);
   }, [uname, valid, taken, me.username, auth.service]);
 
