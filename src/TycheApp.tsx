@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { REMOTE } from "@/lib/supabase";
 import { cx } from "@/lib/utils";
+import { DEMO_INVITE_PASSWORD, checkInvite, hasAccess, requestInvite } from "@/lib/access";
 import { StoreProvider, useStore } from "@/lib/store";
 import { AuthProvider, useAuth } from "@/lib/auth";
 import { AuthScreens, Onboarding } from "@/screens/Auth";
@@ -184,27 +185,121 @@ function RecoverySheet() {
   );
 }
 
-/** Logo-only loading screen for the first 3 seconds after the app opens. The app loads underneath it. */
+/**
+ * Opening screen: the logo for 3 seconds while the app loads underneath.
+ * When Tyche is invite-only (set in /admin → Access) and this device hasn't
+ * been unlocked, it stays up and asks for an invite password instead.
+ */
 function Splash() {
-  const [phase, setPhase] = useState<"show" | "fade" | "gone">("show");
+  const [phase, setPhase] = useState<"show" | "gate" | "fade" | "gone">("show");
+  const [access, setAccess] = useState<boolean | null>(null);
+  const [minDone, setMinDone] = useState(false);
+
   useEffect(() => {
-    const fade = setTimeout(() => setPhase("fade"), 3000);
-    const gone = setTimeout(() => setPhase("gone"), 3400);
-    return () => {
-      clearTimeout(fade);
-      clearTimeout(gone);
-    };
+    const t = setTimeout(() => setMinDone(true), 3000);
+    void hasAccess().then(setAccess);
+    return () => clearTimeout(t);
   }, []);
+
+  const leave = () => {
+    setPhase("fade");
+    setTimeout(() => setPhase("gone"), 400);
+  };
+  useEffect(() => {
+    if (!minDone || access === null || phase !== "show") return;
+    if (access) leave();
+    else setPhase("gate");
+  }, [minDone, access, phase]);
+
   if (phase === "gone") return null;
   return (
-    <div
-      aria-hidden
-      className={cx("fixed inset-0 z-[100] grid place-items-center bg-ink transition-opacity duration-[400ms] ease-out", phase === "fade" && "pointer-events-none opacity-0")}
-    >
-      <div className="relative grid place-items-center">
-        <div className="absolute h-44 w-44 rounded-full bg-brand/25 blur-3xl" />
-        <LogoMark size={96} className="relative animate-pop" />
+    <div className={cx("fixed inset-0 z-[100] overflow-y-auto bg-ink transition-opacity duration-[400ms] ease-out", phase === "fade" && "pointer-events-none opacity-0")}>
+      <div className="mx-auto flex min-h-full max-w-[400px] flex-col items-center justify-center px-6 py-[max(env(safe-area-inset-top),24px)]">
+        <div className={cx("relative grid place-items-center transition-transform duration-500", phase === "gate" && "-translate-y-2")}>
+          <div className="absolute h-44 w-44 rounded-full bg-brand/25 blur-3xl" />
+          <LogoMark size={phase === "gate" ? 76 : 96} className="relative animate-pop transition-all duration-500" />
+        </div>
+        {phase === "gate" && <InviteGate onUnlock={leave} />}
       </div>
+    </div>
+  );
+}
+
+function InviteGate({ onUnlock }: { onUnlock: () => void }) {
+  const [mode, setMode] = useState<"password" | "request" | "sent">("password");
+  const [code, setCode] = useState("");
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [note, setNote] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const input = "h-12 w-full rounded-2xl bg-surface px-4 text-[16px] outline-none ring-1 ring-inset ring-white/[0.06] placeholder:text-dim focus:ring-brand/60";
+
+  const unlock = async () => {
+    if (!code.trim()) return;
+    setBusy(true);
+    setErr("");
+    try {
+      if (await checkInvite(code)) onUnlock();
+      else setErr("That password didn’t work. Check it and try again.");
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  const send = async () => {
+    setBusy(true);
+    setErr("");
+    try {
+      await requestInvite(name, email, note);
+      setMode("sent");
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="mt-8 w-full animate-rise">
+      {mode === "password" && (
+        <form onSubmit={(e) => { e.preventDefault(); void unlock(); }}>
+          <h1 className="text-center font-display text-[24px] font-extrabold tracking-[-0.02em]">Tyche is invite-only</h1>
+          <p className="mb-6 mt-1.5 text-center text-[14px] text-muted">Enter your invite password to get in.</p>
+          <input value={code} onChange={(e) => { setCode(e.target.value); setErr(""); }} type="password" autoComplete="off" autoCapitalize="none" autoCorrect="off" placeholder="Invite password" aria-label="Invite password" className={input} autoFocus />
+          {err && <p className="mt-2 text-center text-[13px] text-loss">{err}</p>}
+          <Button type="submit" size="lg" className="mt-3 w-full" disabled={busy || !code.trim()}>{busy ? "Checking…" : "Enter"}</Button>
+          <button type="button" onClick={() => { setMode("request"); setErr(""); }} className="mt-4 w-full py-2 text-[14px] text-muted">
+            Don’t have one? <span className="font-semibold text-white">Request an invite</span>
+          </button>
+          {!REMOTE && <p className="mt-2 text-center text-[12px] text-dim">Demo password: {DEMO_INVITE_PASSWORD}</p>}
+        </form>
+      )}
+      {mode === "request" && (
+        <form onSubmit={(e) => { e.preventDefault(); void send(); }}>
+          <h1 className="text-center font-display text-[24px] font-extrabold tracking-[-0.02em]">Request an invite</h1>
+          <p className="mb-6 mt-1.5 text-center text-[14px] text-muted">We’ll email you an invite password when a spot opens up.</p>
+          <div className="space-y-2.5">
+            <input value={name} onChange={(e) => setName(e.target.value)} autoComplete="name" placeholder="Your name" aria-label="Your name" className={input} />
+            <input value={email} onChange={(e) => setEmail(e.target.value)} type="email" autoComplete="email" autoCapitalize="none" placeholder="Email" aria-label="Email" className={input} />
+            <input value={note} onChange={(e) => setNote(e.target.value.slice(0, 300))} placeholder="Who invited you? (optional)" aria-label="Note" className={input} />
+          </div>
+          {err && <p className="mt-2 text-center text-[13px] text-loss">{err}</p>}
+          <Button type="submit" size="lg" className="mt-3 w-full" disabled={busy || name.trim().length < 2 || !email.includes("@")}>{busy ? "Sending…" : "Request invite"}</Button>
+          <button type="button" onClick={() => { setMode("password"); setErr(""); }} className="mt-4 w-full py-2 text-[14px] text-muted">
+            Have a password? <span className="font-semibold text-white">Enter it</span>
+          </button>
+        </form>
+      )}
+      {mode === "sent" && (
+        <div className="text-center">
+          <div className="mb-3 text-[36px]">💌</div>
+          <h1 className="font-display text-[24px] font-extrabold tracking-[-0.02em]">You’re on the list</h1>
+          <p className="mx-auto mt-1.5 max-w-[280px] text-[14px] text-muted">We’ll email {email.trim()} an invite password when you’re in.</p>
+          <button type="button" onClick={() => setMode("password")} className="mt-6 w-full py-2 text-[14px] font-semibold text-white">I have a password</button>
+        </div>
+      )}
     </div>
   );
 }

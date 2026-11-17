@@ -1,5 +1,5 @@
 // Preview-only: maps lucide-react names to react-icons' Lucide set (lucide-react isn't installable offline here).
-import { LuActivity, LuArrowLeft, LuArrowRight, LuArrowUpDown, LuArrowUpRight, LuAtSign, LuBadgeCheck, LuBan, LuBell, LuBuilding2, LuCalendarClock, LuCalendarDays, LuCamera, LuChartColumn, LuCheck, LuChevronDown, LuChevronLeft, LuChevronRight, LuChevronsUp, LuCircleCheck, LuCirclePause, LuCircleX, LuClock, LuCoins, LuCompass, LuCopy, LuCrown, LuEllipsis, LuEye, LuEyeOff, LuFastForward, LuFileText, LuFlag, LuFlame, LuGauge, LuGift, LuGlobe, LuHash, LuHeart, LuHouse, LuImagePlus, LuInfinity, LuLayers, LuLayoutDashboard, LuLayoutPanelTop, LuLink2, LuListChecks, LuLoaderCircle, LuLock, LuLockOpen, LuLogOut, LuMail, LuMegaphone, LuMessageCircle, LuMessageSquare, LuMessagesSquare, LuMinus, LuMousePointerClick, LuPalette, LuPanelLeftClose, LuPanelLeftOpen, LuPause, LuPencil, LuPhone, LuPlay, LuPlus, LuRadio, LuRefreshCw, LuReply, LuRotateCcw, LuScrollText, LuSearch, LuSend, LuSettings, LuShare, LuShare2, LuShield, LuShieldCheck, LuShuffle, LuSlidersHorizontal, LuSmile, LuSparkles, LuSquare, LuSwords, LuThumbsUp, LuToggleLeft, LuTrash2, LuTriangleAlert, LuTrophy, LuUser, LuUserCheck, LuUserPlus, LuUsers, LuX } from "react-icons/lu";
+import { LuActivity, LuArrowLeft, LuArrowRight, LuArrowUpDown, LuArrowUpRight, LuAtSign, LuBadgeCheck, LuBan, LuBell, LuBuilding2, LuCalendarClock, LuCalendarDays, LuCamera, LuChartColumn, LuCheck, LuChevronDown, LuChevronLeft, LuChevronRight, LuChevronsUp, LuCircleCheck, LuCirclePause, LuCircleX, LuClock, LuCoins, LuCompass, LuCopy, LuCrown, LuEllipsis, LuEye, LuEyeOff, LuFastForward, LuFileText, LuFlag, LuFlame, LuGauge, LuGift, LuGlobe, LuHash, LuHeart, LuHouse, LuImagePlus, LuInfinity, LuKeyRound, LuLayers, LuLayoutDashboard, LuLayoutPanelTop, LuLink2, LuListChecks, LuLoaderCircle, LuLock, LuLockOpen, LuLogOut, LuMail, LuMegaphone, LuMessageCircle, LuMessageSquare, LuMessagesSquare, LuMinus, LuMousePointerClick, LuPalette, LuPanelLeftClose, LuPanelLeftOpen, LuPause, LuPencil, LuPhone, LuPlay, LuPlus, LuRadio, LuRefreshCw, LuReply, LuRotateCcw, LuScrollText, LuSearch, LuSend, LuSettings, LuShare, LuShare2, LuShield, LuShieldCheck, LuShuffle, LuSlidersHorizontal, LuSmile, LuSparkles, LuSquare, LuSwords, LuThumbsUp, LuToggleLeft, LuTrash2, LuTriangleAlert, LuTrophy, LuUser, LuUserCheck, LuUserPlus, LuUsers, LuX } from "react-icons/lu";
 type P = { size?: number; strokeWidth?: number; className?: string; fill?: string };
 type C = React.ComponentType<Record<string, unknown>>;
 const wrap = (I: unknown) => {
@@ -49,6 +49,7 @@ export const Home = wrap(LuHouse);
 export const House = wrap(LuHouse);
 export const ImagePlus = wrap(LuImagePlus);
 export const Infinity = wrap(LuInfinity);
+export const KeyRound = wrap(LuKeyRound);
 export const Layers = wrap(LuLayers);
 export const LayoutDashboard = wrap(LuLayoutDashboard);
 export const LayoutPanelTop = wrap(LuLayoutPanelTop);

@@ -141,6 +141,15 @@ Campaigns live in **Supabase → Table Editor → `ad_campaigns`**. Add a row pe
 - The defaults live in `tyche_private.cfg_default` (`ad_…` keys) in `schema.sql`. Change them in **/admin → Ad settings**, where they're saved to `tyche_private.settings` and apply without a redeploy.
 - Advertisers can be paused or suspended (none of their ads show), campaigns can be canceled, and campaign **priority** (Normal 1× / High 2× / Urgent 4×) weights which eligible campaign wins a placement. Priority never overrides dates, remaining impressions, even pacing or frequency caps.
 
+## Invite-only mode
+
+Controlled in **/admin → Access** (super admins):
+
+- **Invite-only toggle.** When on, the opening screen asks for an invite password (or lets people request an invite) before anything else, for new and returning members. A device that entered a working password stays unlocked; turning that password off locks it again on the next open.
+- **Invite passwords.** Create as many as you like (e.g. one per group), see how many times each was used, turn them off or delete them. Passwords aren't case-sensitive and are stored hashed, so copy a new one when you create it.
+- **Invite requests.** Name, email and an optional note from the opening screen. Email them a password, then mark them Invited (or Dismiss).
+- The database enforces it too: while invite-only is on, email sign-ups without a valid password are rejected, and Google/Apple sign-ups can't finish onboarding without one. Wrong guesses are rate-limited per network.
+
 ## Supabase (live mode)
 
 The app connects to Supabase automatically (project URL + publishable key in `src/lib/supabase.ts`; override with `NEXT_PUBLIC_SUPABASE_URL` / `NEXT_PUBLIC_SUPABASE_ANON_KEY`, or set `NEXT_PUBLIC_TYCHE_LOCAL=1` for the offline demo). The single-file preview always runs the offline demo.

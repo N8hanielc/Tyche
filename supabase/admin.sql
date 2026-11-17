@@ -764,6 +764,100 @@ begin
     'admin', uid::text, '@' || p.username, jsonb_build_object('role', cur), jsonb_build_object('role', new_role), why);
 end $$;
 
+-- ------------------------------------------------------------- access -----
+-- Invite-only mode, invite passwords and invite requests (tables live in schema.sql).
+
+do $$ begin
+  alter table tyche_private.admin_log drop constraint if exists admin_log_target_type_check;
+  alter table tyche_private.admin_log add constraint admin_log_target_type_check
+    check (target_type in ('user', 'advertiser', 'campaign', 'setting', 'admin', 'access'));
+end $$;
+
+create or replace function public.admin_access() returns jsonb language plpgsql stable security definer set search_path = public as $$
+begin
+  perform tyche_private.require_admin();
+  return jsonb_build_object(
+    'inviteOnly', (select invite_only from tyche_private.access_settings where id),
+    'updatedAt', (select updated_at from tyche_private.access_settings where id),
+    'updatedBy', (select p.username from tyche_private.access_settings a join profiles p on p.id = a.updated_by where a.id),
+    'codes', coalesce((select jsonb_agg(jsonb_build_object('id', c.id, 'label', c.label, 'active', c.active, 'uses', c.uses,
+        'lastUsedAt', c.last_used_at, 'createdAt', c.created_at, 'createdBy', (select username from profiles where id = c.created_by))
+        order by c.active desc, c.created_at desc) from tyche_private.invite_codes c), '[]'),
+    'requests', coalesce((select jsonb_agg(x.r order by x.status = 'pending' desc, x.created_at desc) from (
+        select jsonb_build_object('id', q.id, 'name', q.name, 'email', q.email, 'note', q.note, 'status', q.status, 'createdAt', q.created_at,
+          'handledAt', q.handled_at, 'handledBy', (select username from profiles where id = q.handled_by)) as r, q.status, q.created_at
+        from tyche_private.invite_requests q order by q.status = 'pending' desc, q.created_at desc limit 300) x), '[]'),
+    'pending', (select count(*) from tyche_private.invite_requests where status = 'pending'));
+end $$;
+
+-- Turn invite-only on or off. Super admins only. Needs at least one active password to turn on.
+create or replace function public.admin_access_set(on_off boolean, reason text) returns void
+language plpgsql security definer set search_path = public as $$
+declare me uuid := tyche_private.require_admin('super_admin'); why text := tyche_private.need_reason(reason); cur boolean;
+begin
+  select invite_only into cur from tyche_private.access_settings where id;
+  if cur = on_off then return; end if;
+  if on_off and not exists (select 1 from tyche_private.invite_codes where active) then
+    raise exception 'Create an invite password first, or nobody new could get in';
+  end if;
+  update tyche_private.access_settings set invite_only = on_off, updated_at = now(), updated_by = me where id;
+  perform tyche_private.audit(case when on_off then 'access.invite_only_on' else 'access.invite_only_off' end, 'access', 'invite_only', 'Invite-only mode',
+    jsonb_build_object('inviteOnly', cur), jsonb_build_object('inviteOnly', on_off), why);
+end $$;
+
+create or replace function public.admin_invite_code_create(label text, code text, reason text default null) returns uuid
+language plpgsql security definer set search_path = public, extensions as $$
+declare me uuid := tyche_private.require_admin('super_admin'); c text := lower(trim(coalesce(code, ''))); l text := trim(coalesce(label, '')); nid uuid;
+begin
+  if char_length(l) < 2 or char_length(l) > 40 then raise exception 'Give it a name (2–40 characters)'; end if;
+  if char_length(c) < 6 or char_length(c) > 64 then raise exception 'Passwords need 6–64 characters'; end if;
+  if c ~ '\s' then raise exception 'Passwords can’t contain spaces'; end if;
+  if tyche_private.invite_match(c) is not null then raise exception 'That password is already in use'; end if;
+  insert into tyche_private.invite_codes (label, code_hash, created_by) values (l, crypt(c, gen_salt('bf', 8)), me) returning id into nid;
+  perform tyche_private.audit('access.code_create', 'access', nid::text, l, null, jsonb_build_object('label', l), reason);
+  return nid;
+end $$;
+
+create or replace function public.admin_invite_code_set_active(cid uuid, on_off boolean, reason text) returns void
+language plpgsql security definer set search_path = public as $$
+declare me uuid := tyche_private.require_admin('super_admin'); why text := tyche_private.need_reason(reason); c record;
+begin
+  select * into c from tyche_private.invite_codes where id = cid;
+  if not found then raise exception 'Password not found'; end if;
+  if c.active = on_off then return; end if;
+  if not on_off and tyche_private.invite_only() and not exists (select 1 from tyche_private.invite_codes where active and id <> cid) then
+    raise exception 'This is the last active password. Turn invite-only off first, or add another password';
+  end if;
+  update tyche_private.invite_codes set active = on_off where id = cid;
+  perform tyche_private.audit(case when on_off then 'access.code_enable' else 'access.code_disable' end, 'access', cid::text, c.label,
+    jsonb_build_object('active', c.active), jsonb_build_object('active', on_off), why);
+end $$;
+
+create or replace function public.admin_invite_code_delete(cid uuid, reason text) returns void
+language plpgsql security definer set search_path = public as $$
+declare me uuid := tyche_private.require_admin('super_admin'); why text := tyche_private.need_reason(reason); c record;
+begin
+  select * into c from tyche_private.invite_codes where id = cid;
+  if not found then return; end if;
+  if c.active and tyche_private.invite_only() and not exists (select 1 from tyche_private.invite_codes where active and id <> cid) then
+    raise exception 'This is the last active password. Turn invite-only off first, or add another password';
+  end if;
+  delete from tyche_private.invite_codes where id = cid;
+  perform tyche_private.audit('access.code_delete', 'access', cid::text, c.label, jsonb_build_object('label', c.label, 'uses', c.uses), null, why);
+end $$;
+
+-- Mark an invite request as invited (you sent them a password) or dismissed. Any admin.
+create or replace function public.admin_invite_request_set(rid uuid, new_status text) returns void
+language plpgsql security definer set search_path = public as $$
+declare me uuid := tyche_private.require_admin(); r record;
+begin
+  if new_status not in ('pending', 'invited', 'dismissed') then raise exception 'Unknown status'; end if;
+  select * into r from tyche_private.invite_requests where id = rid;
+  if not found then raise exception 'Request not found'; end if;
+  update tyche_private.invite_requests set status = new_status, handled_by = me, handled_at = now() where id = rid;
+  perform tyche_private.audit('access.request_' || new_status, 'access', rid::text, r.email, jsonb_build_object('status', r.status), jsonb_build_object('status', new_status), null);
+end $$;
+
 -- ------------------------------------------------------------ permissions ---
 
 revoke all on all tables in schema tyche_private from public, anon, authenticated;
@@ -772,6 +866,9 @@ revoke execute on all functions in schema public from public, anon;
 grant execute on all functions in schema public to authenticated;
 grant execute on function public.username_available(text) to anon;
 grant execute on function public.suggested_profiles() to anon;
+grant execute on function public.access_status() to anon;
+grant execute on function public.access_check(text, boolean) to anon;
+grant execute on function public.request_invite(text, text, text) to anon;
 do $$
 begin
   if to_regclass('public.billing_customers') is not null then

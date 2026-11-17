@@ -630,6 +630,10 @@ declare
   wanted text := lower(nullif(meta ->> 'username', ''));
   uname text;
 begin
+  -- invite-only: email sign-ups must carry a valid invite password (social sign-ups are checked at onboarding)
+  if not social and tyche_private.invite_only() and tyche_private.invite_match(meta ->> 'invite_code') is null then
+    raise exception 'invite_required' using errcode = '42501';
+  end if;
   if wanted ~ '^[a-z0-9._]{3,20}$' and not exists (select 1 from public.profiles where username = wanted) then
     uname := wanted;
   elsif wanted is not null and not social then
@@ -825,6 +829,9 @@ end $$;
 create or replace function public.complete_onboarding(p jsonb) returns void language plpgsql security definer set search_path = public as $$
 declare uid uuid := tyche_private.me(); u text := lower(trim(coalesce(p ->> 'username', ''))); f text;
 begin
+  if tyche_private.invite_only() and tyche_private.invite_match(p ->> 'invite_code') is null then
+    raise exception 'Enter a valid invite password to join Tyche';
+  end if;
   if u !~ '^[a-z0-9._]{3,20}$' then raise exception 'Usernames are 3–20 letters, numbers, . or _'; end if;
   if exists (select 1 from profiles where username = u and id <> uid) then raise exception 'That username is taken'; end if;
   update profiles set
@@ -1756,6 +1763,110 @@ values
    '[{"label":"Custom wreath","sub":"Made to match your home"},{"label":"Bare door","sub":"The neighbors noticed"}]', 'Shop wreaths',
    'Custom wreaths & floral decor for every season', 30, 10000)
 on conflict (id) do nothing;
+
+-- ========================================================= INVITE ONLY ===
+-- When invite-only is on, the app asks for an invite password on the opening
+-- screen (or lets people request an invite). Controlled from /admin → Access.
+-- New email sign-ups are also checked here in the database, so the app screen
+-- can't be skipped.
+
+create table if not exists tyche_private.access_settings (
+  id boolean primary key default true check (id),
+  invite_only boolean not null default false,
+  updated_at timestamptz,
+  updated_by uuid
+);
+insert into tyche_private.access_settings (id) values (true) on conflict (id) do nothing;
+
+create table if not exists tyche_private.invite_codes (
+  id uuid primary key default gen_random_uuid(),
+  label text not null,                       -- e.g. "Family", "Launch party"
+  code_hash text not null,                   -- bcrypt; the password itself is never stored
+  active boolean not null default true,
+  uses int not null default 0,
+  last_used_at timestamptz,
+  created_by uuid,
+  created_at timestamptz not null default now()
+);
+
+create table if not exists tyche_private.invite_requests (
+  id uuid primary key default gen_random_uuid(),
+  name text not null,
+  email text not null,
+  note text,
+  status text not null default 'pending' check (status in ('pending', 'invited', 'dismissed')),
+  created_at timestamptz not null default now(),
+  handled_by uuid,
+  handled_at timestamptz
+);
+create unique index if not exists invite_requests_pending_email on tyche_private.invite_requests (lower(email)) where status = 'pending';
+
+-- Failed password attempts / requests per network address, to stop guessing.
+create table if not exists tyche_private.access_attempts (
+  ip text not null,
+  kind text not null,
+  at timestamptz not null default now()
+);
+create index if not exists access_attempts_ip on tyche_private.access_attempts (ip, kind, at desc);
+
+create or replace function tyche_private.client_ip() returns text language sql stable as $$
+  select coalesce(split_part(nullif(current_setting('request.headers', true), '')::json ->> 'x-forwarded-for', ',', 1), 'unknown')
+$$;
+
+create or replace function tyche_private.invite_only() returns boolean language sql stable as $$
+  select coalesce((select invite_only from tyche_private.access_settings where id), false)
+$$;
+
+-- Matching invite code id, or null. Passwords are case-insensitive.
+create or replace function tyche_private.invite_match(code text) returns uuid language sql stable set search_path = public, extensions as $$
+  select id from tyche_private.invite_codes
+  where active and code is not null and char_length(trim(code)) between 4 and 64
+    and code_hash = crypt(lower(trim(code)), code_hash)
+  limit 1
+$$;
+
+create or replace function public.access_status() returns jsonb language sql stable security definer set search_path = public as $$
+  select jsonb_build_object('inviteOnly', tyche_private.invite_only())
+$$;
+
+-- Checks an invite password. count_use = false for the silent re-check when the app reopens.
+create or replace function public.access_check(code text, count_use boolean default true) returns boolean
+language plpgsql security definer set search_path = public as $$
+declare v_ip text := tyche_private.client_ip(); cid uuid;
+begin
+  if not tyche_private.invite_only() then return true; end if;
+  if (select count(*) from tyche_private.access_attempts where ip = v_ip and kind = 'fail' and at > now() - interval '10 minutes') >= 8 then
+    raise exception 'Too many tries. Wait a few minutes and try again.';
+  end if;
+  cid := tyche_private.invite_match(code);
+  if cid is null then
+    insert into tyche_private.access_attempts (ip, kind) values (v_ip, 'fail');
+    return false;
+  end if;
+  if count_use then update tyche_private.invite_codes set uses = uses + 1, last_used_at = now() where id = cid; end if;
+  return true;
+end $$;
+
+create or replace function public.request_invite(full_name text, email_addr text, msg text default null) returns void
+language plpgsql security definer set search_path = public as $$
+declare v_ip text := tyche_private.client_ip(); e text := lower(trim(coalesce(email_addr, ''))); nm text := left(trim(coalesce(full_name, '')), 80);
+begin
+  if char_length(nm) < 2 then raise exception 'Add your name'; end if;
+  if e !~ '^[^@\s]+@[^@\s]+\.[^@\s]+$' or char_length(e) > 200 then raise exception 'Enter a valid email'; end if;
+  if (select count(*) from tyche_private.access_attempts a where a.ip = v_ip and a.kind = 'request' and a.at > now() - interval '1 hour') >= 5 then
+    raise exception 'Too many requests. Try again later.';
+  end if;
+  insert into tyche_private.access_attempts (ip, kind) values (v_ip, 'request');
+  update tyche_private.invite_requests r set name = nm, note = coalesce(nullif(left(trim(coalesce(msg, '')), 300), ''), r.note), created_at = now()
+  where lower(r.email) = e and r.status = 'pending';
+  if not found then
+    insert into tyche_private.invite_requests (name, email, note) values (nm, e, nullif(left(trim(coalesce(msg, '')), 300), ''));
+  end if;
+end $$;
+
+grant execute on function public.access_status() to anon, authenticated;
+grant execute on function public.access_check(text, boolean) to anon, authenticated;
+grant execute on function public.request_invite(text, text, text) to anon, authenticated;
 
 -- Realtime: tell the app when something it can see changes.
 do $$

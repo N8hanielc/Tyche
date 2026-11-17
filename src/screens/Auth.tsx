@@ -9,6 +9,7 @@ import { readImage } from "@/lib/media";
 import { cx, isCrowd } from "@/lib/utils";
 import type { User } from "@/lib/types";
 import { supabase } from "@/lib/supabase";
+import { storedInvite } from "@/lib/access";
 import { uploadImage } from "@/lib/upload";
 import { Avatar, BottomSheet, Button, Logo, Verified } from "@/components/ui";
 
@@ -550,7 +551,7 @@ export function Onboarding() {
     setBusy(true);
     setErr("");
     const photo = avatar && avatar !== me.avatar ? await uploadImage(avatar, "avatar") : undefined;
-    const { error } = await supabase!.rpc("complete_onboarding", { p: { name: name.trim(), username: uname, avatar: photo ?? "", follows } });
+    const { error } = await supabase!.rpc("complete_onboarding", { p: { name: name.trim(), username: uname, avatar: photo ?? "", follows, invite_code: storedInvite() } });
     if (error) {
       setBusy(false);
       return setErr(error.message);

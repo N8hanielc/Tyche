@@ -3,7 +3,7 @@
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
 import type { Session } from "@supabase/supabase-js";
 import {
-  Building2, Coins, Gauge, LayoutDashboard, Loader2, LogOut, Megaphone, PanelLeftClose, PanelLeftOpen,
+  Building2, Coins, Gauge, KeyRound, LayoutDashboard, Loader2, LogOut, Megaphone, PanelLeftClose, PanelLeftOpen,
   RefreshCw, ScrollText, Search, ShieldCheck, SlidersHorizontal, Users,
 } from "lucide-react";
 import { REMOTE, supabase } from "@/lib/supabase";
@@ -18,13 +18,15 @@ import { PerformanceSection } from "./sections/Performance";
 import { SettingsSection } from "./sections/Settings";
 import { ActivitySection } from "./sections/Activity";
 import { TeamSection } from "./sections/Team";
+import { AccessSection } from "./sections/Access";
 
-export type Section = "overview" | "users" | "points" | "advertisers" | "campaigns" | "performance" | "settings" | "activity" | "team";
+export type Section = "overview" | "users" | "points" | "access" | "advertisers" | "campaigns" | "performance" | "settings" | "activity" | "team";
 
 const NAV: { id: Section; label: string; icon: React.ComponentType<{ size?: number }>; group: string }[] = [
   { id: "overview", label: "Overview", icon: LayoutDashboard, group: "Platform" },
   { id: "users", label: "Users", icon: Users, group: "Platform" },
   { id: "points", label: "Points", icon: Coins, group: "Platform" },
+  { id: "access", label: "Access", icon: KeyRound, group: "Platform" },
   { id: "advertisers", label: "Advertisers", icon: Building2, group: "Advertising" },
   { id: "campaigns", label: "Campaigns", icon: Megaphone, group: "Advertising" },
   { id: "performance", label: "Performance", icon: Gauge, group: "Advertising" },
@@ -34,6 +36,7 @@ const NAV: { id: Section; label: string; icon: React.ComponentType<{ size?: numb
 ];
 const TITLES: Record<Section, { title: string; sub: string }> = {
   overview: { title: "Overview", sub: "Platform activity across Tyche" },
+  access: { title: "Access", sub: "Invite-only mode, invite passwords and requests" },
   users: { title: "Users", sub: "Accounts, verification and status" },
   points: { title: "Points", sub: "Issue, deduct and audit virtual points" },
   advertisers: { title: "Advertisers", sub: "Companies buying placements" },
@@ -256,6 +259,7 @@ function Shell({ me }: { me: Me }) {
             {route.section === "campaigns" && <CampaignsSection />}
             {route.section === "performance" && <PerformanceSection />}
             {route.section === "settings" && <SettingsSection />}
+            {route.section === "access" && <AccessSection />}
             {route.section === "activity" && <ActivitySection />}
             {route.section === "team" && <TeamSection />}
           </main>

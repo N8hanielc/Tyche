@@ -4,6 +4,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState } 
 import type { ID } from "./types";
 import { uid } from "./utils";
 import { SUPABASE_KEY, SUPABASE_URL, supabase } from "@/lib/supabase";
+import { storedInvite } from "@/lib/access";
 import { uploadImage } from "@/lib/upload";
 
 /**
@@ -198,7 +199,7 @@ export const supabaseAuth: AuthService | null = supabase
         const { data, error } = await supabase!.auth.signUp({
           email: email.trim(),
           password,
-          options: { data: { name: profile.name, username: profile.username }, emailRedirectTo: typeof window !== "undefined" ? window.location.origin : undefined },
+          options: { data: { name: profile.name, username: profile.username, invite_code: storedInvite() ?? undefined }, emailRedirectTo: typeof window !== "undefined" ? window.location.origin : undefined },
         });
         if (error) throw mapError(error.message);
         if (!data.session) throw new AuthError("form", "Almost there — check your email to confirm your account, then sign in.");

@@ -86,7 +86,17 @@ export interface Overview {
 
 export interface TeamMember { id: string; username: string; name: string; avatar?: string | null; hue: number; role: Role; grantedAt: string; grantedBy?: string | null }
 
+export interface InviteCode { id: string; label: string; active: boolean; uses: number; lastUsedAt?: string | null; createdAt: string; createdBy?: string | null }
+export interface InviteRequest { id: string; name: string; email: string; note?: string | null; status: "pending" | "invited" | "dismissed"; createdAt: string; handledAt?: string | null; handledBy?: string | null }
+export interface Access { inviteOnly: boolean; updatedAt?: string | null; updatedBy?: string | null; codes: InviteCode[]; requests: InviteRequest[]; pending: number }
+
 export const api = {
+  access: () => rpc<Access>("admin_access"),
+  setInviteOnly: (on: boolean, reason: string) => rpc<void>("admin_access_set", { on_off: on, reason }),
+  createInviteCode: (label: string, code: string, reason?: string) => rpc<string>("admin_invite_code_create", { label, code, reason: reason || null }),
+  setInviteCodeActive: (cid: string, on: boolean, reason: string) => rpc<void>("admin_invite_code_set_active", { cid, on_off: on, reason }),
+  deleteInviteCode: (cid: string, reason: string) => rpc<void>("admin_invite_code_delete", { cid, reason }),
+  setInviteRequest: (rid: string, status: InviteRequest["status"]) => rpc<void>("admin_invite_request_set", { rid, new_status: status }),
   whoami: () => rpc<Me>("admin_whoami"),
   overview: (days: number) => rpc<Overview>("admin_overview", { days }),
   users: (q: string, statusFilter: string, sort: string, lim: number, off: number) =>
