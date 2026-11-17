@@ -505,6 +505,26 @@ begin
   return new;
 end $$;
 
+-- Creates a profile for an account that doesn't have one (e.g. signed up
+-- before this script was run). Called by get_state, so those users self-heal.
+create or replace function tyche_private.ensure_profile(uid uuid) returns void language plpgsql security definer set search_path = public as $$
+declare u auth.users;
+  display text;
+begin
+  if exists (select 1 from public.profiles where id = uid) then return; end if;
+  select * into u from auth.users where id = uid;
+  if not found then return; end if;
+  display := coalesce(nullif(u.raw_user_meta_data ->> 'name', ''), nullif(u.raw_user_meta_data ->> 'full_name', ''),
+                      initcap(regexp_replace(split_part(coalesce(u.email, ''), '@', 1), '[._0-9]+', ' ', 'g')), 'New player');
+  insert into public.profiles (id, username, name, avatar, onboarded)
+  values (uid,
+          tyche_private.unique_username(coalesce(nullif(u.raw_user_meta_data ->> 'username', ''), regexp_replace(display, '\s', '', 'g'))),
+          left(trim(coalesce(nullif(display, ''), 'New player')), 60),
+          nullif(coalesce(u.raw_user_meta_data ->> 'avatar_url', u.raw_user_meta_data ->> 'picture'), ''),
+          false) -- they confirm their username on the welcome screen
+  on conflict (id) do nothing;
+end $$;
+
 drop trigger if exists on_auth_user_created on auth.users;
 create trigger on_auth_user_created after insert on auth.users for each row execute function tyche_private.handle_new_user();
 
@@ -515,6 +535,7 @@ create trigger on_auth_user_created after insert on auth.users for each row exec
 create or replace function public.get_state() returns jsonb language plpgsql security definer set search_path = public as $$
 declare uid uuid := tyche_private.me();
 begin
+  perform tyche_private.ensure_profile(uid);
   perform tyche_private.tick();
   return jsonb_build_object(
     'version', 2,
@@ -1014,3 +1035,6 @@ end $$;
 -- Optional (Phase 2): run transitions every minute even when nobody has the app open.
 -- Enable the pg_cron extension in Database → Extensions first, then run:
 --   select cron.schedule('tyche-tick', '* * * * *', 'select tyche_private.tick()');
+
+-- Tell the API to pick up the new functions right away.
+notify pgrst, 'reload schema';
