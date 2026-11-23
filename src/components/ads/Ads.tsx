@@ -155,7 +155,7 @@ export function AdBanner() {
 
   if (closed || !ad) return null;
   return (
-    <div className="pointer-events-none fixed inset-x-0 bottom-[calc(max(env(safe-area-inset-bottom),8px)+66px)] z-30 mx-auto max-w-[440px] px-3">
+    <div className="pointer-events-none fixed inset-x-0 bottom-[calc(max(env(safe-area-inset-bottom),8px)+82px)] z-30 mx-auto max-w-[440px] px-3">
       <AdBannerView ref={ref} key={ad.id + shown} ad={ad} onOpen={() => openAd(ad, "banner")} onClose={() => setClosed(true)} />
     </div>
   );
