@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, Camera, Check, ChevronDown, FastForward, Flag, ImagePlus, Play, Reply, Send, Share2, Smile, Square, ThumbsUp, Trophy, Users, X } from "lucide-react";
-import { DISPUTES_TO_FREEZE, REQUIRED, resultDueAt, tallyVotes, useNow, useStore, voteChoices, voters } from "@/lib/store";
+import { CREATOR_GRACE_H, DISPUTES_TO_FREEZE, REQUIRED, resultDueAt, tallyVotes, useNow, useStore, voteChoices, voters } from "@/lib/store";
 import { useNav } from "@/lib/nav";
 import { REMOTE } from "@/lib/supabase";
 import { readImage } from "@/lib/media";
@@ -343,7 +343,15 @@ function LivePanel({ c, isCreator, onSubmit }: { c: Challenge; isCreator: boolea
       )}
       <div className="mt-3 flex items-center gap-2 rounded-xl bg-black/20 px-3 py-2 text-[12px] text-muted">
         <span className="flex-1">
-          Result due by <b className="text-white">{new Date(resultDueAt(c)).toLocaleString(undefined, { weekday: "short", hour: "numeric", minute: "2-digit" })}</b> ({countdown(resultDueAt(c), now)}). After that, participants vote.
+          {resultDueAt(c) > now ? (
+            <>
+              Result due by <b className="text-white">{fmtWhen(resultDueAt(c))}</b> ({countdown(resultDueAt(c), now)}). If it’s late, @{creator?.username} gets reminders for {CREATOR_GRACE_H / 24} days before participants vote.
+            </>
+          ) : (
+            <>
+              <b className="text-white">Result overdue.</b> @{creator?.username} has until <b className="text-white">{fmtWhen(resultDueAt(c) + CREATOR_GRACE_H * 3_600_000)}</b> ({countdown(resultDueAt(c) + CREATOR_GRACE_H * 3_600_000, now)}) to post it, then participants vote.
+            </>
+          )}
         </span>
         {!REMOTE && <button onClick={() => actions.demoDeadline(c.id)} className="shrink-0 rounded-lg bg-surface px-2 py-1 text-[11px] font-semibold text-lav" title="Demo control">
           ⏩ Skip
@@ -797,10 +805,13 @@ function Composer({ challengeId }: { challengeId: string }) {
 }
 
 
+const fmtWhen = (t: number) => new Date(t).toLocaleString(undefined, { weekday: "short", hour: "numeric", minute: "2-digit" });
+
 function VotePanel({ c, onResubmit }: { c: Challenge; onResubmit: () => void }) {
   const { db, actions } = useStore();
   const now = useNow(30_000);
   const v = c.vote!;
+  const creator = db.users[c.creatorId];
   const { counts, total, quorum } = tallyVotes(c);
   const mine = v.votes[db.meId];
   const everyone = voters(c);
@@ -816,7 +827,9 @@ function VotePanel({ c, onResubmit }: { c: Challenge; onResubmit: () => void }) 
       ? "Tie! Runoff vote."
       : c.question
     : v.reason === "deadline"
-      ? "No result was submitted. The group decides."
+      ? v.lastCall
+        ? "Last call: nobody has voted yet."
+        : `@${creator?.username ?? "The creator"} never posted the result. The group decides.`
       : `@${db.users[c.result?.submittedBy ?? ""]?.username ?? "creator"} said ${proposed}. Not everyone agrees.`;
   return (
     <section className="mb-4 rounded-[26px] bg-[radial-gradient(120%_120%_at_100%_0%,rgba(182,154,255,0.22),#151720_55%)] p-4 hairline">
@@ -825,7 +838,9 @@ function VotePanel({ c, onResubmit }: { c: Challenge; onResubmit: () => void }) 
       <p className="mb-4 mt-1.5 text-[13px] text-muted">
         {hidden
           ? `Votes stay hidden until everyone has voted or time runs out (${countdown(v.endsAt, now)}). Most votes wins. You can’t vote for yourself.`
-          : `Majority wins once ${quorum} vote${quorum === 1 ? "" : "s"} are in. Voting closes in ${countdown(v.endsAt, now)}; if nobody votes, everyone is refunded.`}
+          : `Majority wins once ${quorum} vote${quorum === 1 ? "" : "s"} are in. Voting closes in ${countdown(v.endsAt, now)}; ${
+              v.reason !== "deadline" || v.lastCall ? "if nobody votes, everyone is refunded." : "if nobody votes, there’s one last day to vote before anyone is refunded."
+            }`}
       </p>
       <div className="mb-4 space-y-1.5">
         {choices.map((o) => {

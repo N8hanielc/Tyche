@@ -240,6 +240,9 @@ create or replace function tyche_private.cfg_default(k text) returns numeric lan
     when 'required_confirms' then 2
     when 'deadline_h' then 24
     when 'vote_window_h' then 12
+    when 'creator_grace_h' then 72      -- after the result is due, the creator gets this long (with reminders) before it goes to a vote
+    when 'deadline_vote_h' then 24      -- how long that fallback vote stays open
+    when 'last_call_h' then 24          -- if nobody votes, one more round this long before anyone is refunded
     when 'participant_vote_h' then 3
     when 'runoff_min' then 30
     when 'disputes_to_freeze' then 2
@@ -449,7 +452,10 @@ begin
     live = case when live ? 'endedAt' then live else coalesce(live, '{}') || jsonb_build_object('endedAt', tyche_private.ms(now())) end
   where id = cid;
 
-  perform tyche_private.sys(cid, '✅', 'Result confirmed by ' || coalesce(names, 'the creator'));
+  -- a vote that nobody voted in has already explained itself
+  if not (c.result ->> 'submittedBy' = 'vote' and names is null) then
+    perform tyche_private.sys(cid, '✅', 'Result confirmed by ' || coalesce(names, 'the creator'));
+  end if;
   if win is not null then
     perform tyche_private.sys(cid, '🏆', format('Winner: %s · %s winner%s split %s pts', tyche_private.opt_label(c, win), winners, case when winners = 1 then '' else 's' end, tot));
   else
@@ -493,6 +499,7 @@ begin
   win_ms := case
     when runoff is not null then tyche_private.cfg('runoff_min') * 60000
     when reason = 'participants' then tyche_private.cfg('participant_vote_h') * 3600000
+    when reason = 'deadline' then tyche_private.cfg('deadline_vote_h') * 3600000
     else tyche_private.cfg('vote_window_h') * 3600000 end;
   update public.challenges set
     status = 'vote',
@@ -510,7 +517,8 @@ begin
     when runoff is not null then format('Tie between %s — %s-minute runoff vote.',
       (select string_agg(tyche_private.opt_label(c, r), ' and ') from unnest(runoff) r), tyche_private.cfg('runoff_min'))
     when reason = 'participants' then '🌙 Voting is open. Everyone votes — you can’t vote for yourself. Votes stay hidden until it closes.'
-    when reason = 'deadline' then format('No result after %sh — it’s up to a vote. Majority wins; if nobody votes, everyone is refunded.', tyche_private.cfg('deadline_h'))
+    when reason = 'deadline' then format('@%s didn’t post the result in time, so it’s up to a vote. Majority wins.',
+      coalesce((select username from public.profiles where id = c.creator_id), 'The creator'))
     else format('Result frozen after %s disputes — participants vote to decide.', tyche_private.cfg('disputes_to_freeze')) end;
   perform tyche_private.sys(cid, '🗳️', body);
   foreach u in array tyche_private.voters(c) loop
@@ -570,6 +578,14 @@ begin
       end if;
     end if;
     winner := case when total > 0 and clear then lead_opt else '__tie' end;
+  elsif force and total = 0 and c.vote ->> 'reason' = 'deadline' and not coalesce((c.vote ->> 'lastCall')::boolean, false) then
+    -- nobody voted: one more round (and another nudge) before anyone gets refunded
+    update public.challenges set vote = vote || jsonb_build_object('lastCall', true, 'reminded', false,
+      'endsAt', tyche_private.ms(now()) + (tyche_private.cfg('last_call_h') * 3600000)::bigint) where id = cid;
+    perform tyche_private.sys(cid, '🗳️', format('Nobody voted yet. Last call: %s more hours to vote — if it’s still empty, everyone is refunded.', tyche_private.cfg('last_call_h')));
+    perform tyche_private.notify(u2, 'confirmed', format('Last call to vote on “%s” — or everyone gets refunded', tyche_private.title(c)), cid)
+      from unnest(tyche_private.voters(c)) u2;
+    return true;
   elsif force then
     winner := case when total > 0 and clear then lead_opt else '__tie' end;
   elsif total >= quorum and clear and lead_n > total / 2.0 then
@@ -596,6 +612,52 @@ begin
   return true;
 end $$;
 
+-- Result is past due and nobody has posted it. The creator is responsible:
+-- reminders at due, +24h and +48h; only after creator_grace_h does it go to a vote.
+create or replace function tyche_private.result_overdue(c public.challenges) returns void language plpgsql as $$
+declare
+  over_h numeric := (tyche_private.ms(now()) - tyche_private.result_due(c)) / 3600000.0;
+  grace int := tyche_private.cfg('creator_grace_h')::int;
+  n int := coalesce((c.live ->> 'nudged')::int, 0);
+  who text := coalesce((select username from public.profiles where id = c.creator_id), 'the creator');
+  what text := case when c.verifier = 'vote' then 'open voting on' else 'post the result for' end;
+  u uuid;
+begin
+  if over_h >= grace then
+    perform tyche_private.open_vote(c.id, 'deadline');
+    return;
+  end if;
+  if n = 0 then
+    perform tyche_private.notify(c.creator_id, 'closing', format('Time to %s “%s” — everyone’s waiting on you', what, tyche_private.title(c)), c.id);
+    foreach u in array tyche_private.voters(c) loop
+      if u <> c.creator_id then
+        perform tyche_private.notify(u, 'closing', format('Waiting on @%s to %s “%s”', who, what, tyche_private.title(c)), c.id, c.creator_id);
+      end if;
+    end loop;
+    perform tyche_private.sys(c.id, '⏳', format('Result is due. @%s has %s hours to %s it — after that, everyone votes.', who, grace,
+      case when c.verifier = 'vote' then 'open voting on' else 'post' end));
+  elsif n = 1 and over_h >= 24 then
+    perform tyche_private.notify(c.creator_id, 'closing', format('Reminder: %s “%s”', what, tyche_private.title(c)), c.id);
+  elsif n = 2 and over_h >= grace - 24 then
+    perform tyche_private.notify(c.creator_id, 'closing', format('Last chance: %s “%s” in the next 24 hours, or participants vote on it', what, tyche_private.title(c)), c.id);
+  else
+    return;
+  end if;
+  update public.challenges set live = coalesce(live, '{}'::jsonb) || jsonb_build_object('nudged', n + 1) where id = c.id;
+end $$;
+
+-- A fallback vote with time running out: remind the people who haven't voted (once).
+create or replace function tyche_private.vote_reminder(c public.challenges) returns void language plpgsql as $$
+declare u uuid;
+begin
+  foreach u in array tyche_private.voters(c) loop
+    if not (c.vote -> 'votes') ? u::text then
+      perform tyche_private.notify(u, 'closing', format('Voting on “%s” closes soon — you haven’t voted yet', tyche_private.title(c)), c.id);
+    end if;
+  end loop;
+  update public.challenges set vote = vote || jsonb_build_object('reminded', true) where id = c.id;
+end $$;
+
 -- Time-based transitions. Runs inside get_state (so the app works without cron)
 -- and can also be scheduled with pg_cron (see bottom of file).
 create or replace function tyche_private.tick() returns void language plpgsql as $$
@@ -611,9 +673,12 @@ begin
     elsif c.status = 'live' and c.verifier = 'vote' and c.vote_at is not null and c.vote_at <= now() and c.vote is null then
       perform tyche_private.open_vote(c.id, 'participants');
     elsif c.status = 'live' and c.result is null and tyche_private.result_due(c) <= tyche_private.ms(now()) then
-      perform tyche_private.open_vote(c.id, 'deadline');
+      perform tyche_private.result_overdue(c);
     elsif c.status = 'vote' and (c.vote ->> 'endsAt')::bigint <= tyche_private.ms(now()) then
       perform tyche_private.resolve_vote(c.id, true);
+    elsif c.status = 'vote' and c.vote ->> 'reason' <> 'participants' and not coalesce((c.vote ->> 'reminded')::boolean, false)
+      and (c.vote ->> 'endsAt')::bigint - tyche_private.ms(now()) <= least(6 * 3600000, ((c.vote ->> 'endsAt')::bigint - (c.vote ->> 'opensAt')::bigint) / 4) then
+      perform tyche_private.vote_reminder(c);
     end if;
   end loop;
 end $$;

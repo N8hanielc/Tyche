@@ -77,7 +77,8 @@ export interface Entry {
 export interface LiveState {
   startedAt?: number;
   endedAt?: number;
-  resultDueAt?: number; // creator must submit by this time or it goes to a vote
+  resultDueAt?: number; // creator should submit by this time; reminders follow, then a vote
+  nudged?: number; // overdue reminders sent to the creator so far
   counter?: number; // for count-based over/under (plates, threes…)
 }
 
@@ -101,6 +102,8 @@ export interface Vote {
   endsAt: number;
   votes: Record<ID, ID>; // userId -> optionId or "__tie"
   proposed?: ID; // the disputed result, if any
+  reminded?: boolean; // "closes soon" reminder sent
+  lastCall?: boolean; // nobody voted, so it got one more round
 }
 
 export interface Challenge {

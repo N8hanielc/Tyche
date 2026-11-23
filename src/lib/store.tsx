@@ -87,7 +87,8 @@ function settle(db: DB, c: Challenge) {
     if (net >= 0) u.points += e.points + net;
   });
   const winners = c.entries.filter((e) => e.optionId === winning);
-  sysMsg(db, c.id, "✅", `Result confirmed by ${c.result.confirmations.map((id) => first(db, id)).join(", ") || "the creator"}`);
+  if (!(c.result.submittedBy === "vote" && !c.result.confirmations.length))
+    sysMsg(db, c.id, "✅", `Result confirmed by ${c.result.confirmations.map((id) => first(db, id)).join(", ") || "the creator"}`);
   if (winning) {
     sysMsg(db, c.id, "🏆", `Winner: ${optLabel(c, winning)} · ${winners.length} winner${winners.length === 1 ? "" : "s"} split ${totalPool(c)} pts`);
   } else {
@@ -107,7 +108,10 @@ function settle(db: DB, c: Challenge) {
 // ---------- Lifecycle automation ----------
 
 export const RESULT_DEADLINE_H = 24; // creator must submit within this many hours of the start
-export const VOTE_WINDOW_H = 12; // how long a fallback vote stays open
+export const VOTE_WINDOW_H = 12; // how long a dispute vote stays open
+export const CREATOR_GRACE_H = 72; // after the result is due, the creator gets this long (with reminders) before it goes to a vote
+export const DEADLINE_VOTE_H = 24; // how long that fallback vote stays open
+export const LAST_CALL_H = 24; // if nobody votes, one more round before anyone is refunded
 export const DISPUTES_TO_FREEZE = 2; // disputes that freeze a submitted result
 export const VOTE_QUORUM = 3; // votes needed to decide early (or everyone, if fewer play)
 const H = 3_600_000;
@@ -145,14 +149,14 @@ function openVote(db: DB, c: Challenge, reason: "deadline" | "dispute" | "partic
   const now = Date.now();
   if (c.live && !c.live.endedAt) c.live.endedAt = now;
   c.status = "vote";
-  const window = runoff ? RUNOFF_MIN * 60_000 : reason === "participants" ? PARTICIPANT_VOTE_H * H : VOTE_WINDOW_H * H;
+  const window = runoff ? RUNOFF_MIN * 60_000 : reason === "participants" ? PARTICIPANT_VOTE_H * H : reason === "deadline" ? DEADLINE_VOTE_H * H : VOTE_WINDOW_H * H;
   c.vote = { reason, opensAt: now, endsAt: now + window, votes: {}, proposed: reason === "dispute" ? c.result?.optionId : undefined, round: runoff ? 2 : 1, choices: runoff };
   const text = runoff
     ? `Tie between ${runoff.map((id) => optLabel(c, id)).join(" and ")} — ${RUNOFF_MIN}-minute runoff vote.`
     : reason === "participants"
       ? "🌙 Voting is open. Everyone votes — you can’t vote for yourself. Votes stay hidden until it closes."
       : reason === "deadline"
-        ? `No result after ${RESULT_DEADLINE_H}h — it’s up to a vote. Majority wins; if nobody votes, everyone is refunded.`
+        ? `@${db.users[c.creatorId]?.username ?? "The creator"} didn’t post the result in time, so it’s up to a vote. Majority wins.`
         : `Result frozen after ${DISPUTES_TO_FREEZE} disputes — participants vote to decide.`;
   sysMsg(db, c.id, "🗳️", text);
   if (voters(c).includes(db.meId))
@@ -191,6 +195,14 @@ function maybeResolveVote(db: DB, c: Challenge, force = false) {
       }
     }
     winner = total && clear ? lead[0] : "__tie";
+  } else if (force && !total && c.vote.reason === "deadline" && !c.vote.lastCall) {
+    // nobody voted: one more round (and another nudge) before anyone gets refunded
+    c.vote.lastCall = true;
+    c.vote.reminded = false;
+    c.vote.endsAt = Date.now() + LAST_CALL_H * H;
+    sysMsg(db, c.id, "🗳️", `Nobody voted yet. Last call: ${LAST_CALL_H} more hours to vote — if it’s still empty, everyone is refunded.`);
+    if (voters(c).includes(db.meId)) notify(db, { kind: "confirmed", challengeId: c.id, text: `Last call to vote on “${c.title || c.question}” — or everyone gets refunded` });
+    return true;
   } else if (force) winner = total && clear ? lead[0] : "__tie";
   else if (total >= quorum && clear && lead[1] > total / 2) winner = lead[0];
   if (!winner) return false;
@@ -211,6 +223,34 @@ function maybeResolveVote(db: DB, c: Challenge, force = false) {
   return true;
 }
 
+/**
+ * The result is past due. The creator is responsible: reminders at due, +24h and +48h;
+ * only after CREATOR_GRACE_H does it go to a participant vote.
+ */
+function resultOverdue(db: DB, c: Challenge, now: number) {
+  const overH = (now - resultDueAt(c)) / H;
+  const n = c.live?.nudged ?? 0;
+  const who = db.users[c.creatorId]?.username ?? "the creator";
+  const what = c.verifier === "vote" ? "open voting on" : "post the result for";
+  const title = c.title || c.question;
+  const mine = c.creatorId === db.meId;
+  if (overH >= CREATOR_GRACE_H) {
+    openVote(db, c, "deadline");
+    return true;
+  }
+  if (n === 0) {
+    if (mine) notify(db, { kind: "closing", challengeId: c.id, text: `Time to ${what} “${title}” — everyone’s waiting on you` });
+    else if (voters(c).includes(db.meId)) notify(db, { kind: "closing", challengeId: c.id, actorId: c.creatorId, text: `Waiting on @${who} to ${what} “${title}”` });
+    sysMsg(db, c.id, "⏳", `Result is due. @${who} has ${CREATOR_GRACE_H} hours to ${c.verifier === "vote" ? "open voting on" : "post"} it — after that, everyone votes.`);
+  } else if (n === 1 && overH >= 24) {
+    if (mine) notify(db, { kind: "closing", challengeId: c.id, text: `Reminder: ${what} “${title}”` });
+  } else if (n === 2 && overH >= CREATOR_GRACE_H - 24) {
+    if (mine) notify(db, { kind: "closing", challengeId: c.id, text: `Last chance: ${what} “${title}” in the next 24 hours, or participants vote on it` });
+  } else return false;
+  if (c.live) c.live.nudged = n + 1;
+  return true;
+}
+
 /** Time-based transitions. Runs on load and every few seconds; returns true if anything changed. */
 function tick(db: DB, now = Date.now()) {
   let changed = false;
@@ -226,10 +266,14 @@ function tick(db: DB, now = Date.now()) {
       openVote(db, c, "participants");
       changed = true;
     } else if (c.status === "live" && !c.result && resultDueAt(c) <= now) {
-      openVote(db, c, "deadline");
-      changed = true;
+      changed = resultOverdue(db, c, now) || changed;
     } else if (c.status === "vote" && c.vote && c.vote.endsAt <= now) {
       maybeResolveVote(db, c, true);
+      changed = true;
+    } else if (c.status === "vote" && c.vote && c.vote.reason !== "participants" && !c.vote.reminded && c.vote.endsAt - now <= Math.min(6 * H, (c.vote.endsAt - c.vote.opensAt) / 4)) {
+      c.vote.reminded = true;
+      if (voters(c).includes(db.meId) && !c.vote.votes[db.meId])
+        notify(db, { kind: "closing", challengeId: c.id, text: `Voting on “${c.title || c.question}” closes soon — you haven’t voted yet` });
       changed = true;
     }
   });
@@ -576,7 +620,9 @@ function makeActions(mutate: (fn: Mutator) => void, later: (ms: number, fn: Muta
       mutate((db) => {
         const c = db.challenges.find((x) => x.id === challengeId);
         if (!c?.live || c.status !== "live") return;
-        c.live.resultDueAt = Date.now() - 1;
+        // first press: make it due now; each press after: jump a day into the overdue window
+        const due = resultDueAt(c);
+        c.live.resultDueAt = due > Date.now() ? Date.now() - 1 : due - 24 * H;
         tick(db);
       });
     },
