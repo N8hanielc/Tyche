@@ -221,14 +221,16 @@ export function myNotifications(db: DB) {
     (n) =>
       (n.to ?? SEED_ME) === db.meId &&
       // a follow from an account that has since been deleted has nothing to show
-      !(n.kind === "follow" && (!n.actorId || !db.users[n.actorId])),
+      !((n.kind === "follow" || n.kind === "follow_request") && (!n.actorId || !db.users[n.actorId])),
   );
 }
 
 /** Visibility rules: public/link for all; group for members; friends for people the creator's circle includes. */
 export function canSee(db: DB, c: Challenge) {
   if (c.creatorId === db.meId || c.entries.some((e) => e.userId === db.meId)) return true;
-  if (c.visibility === "public" || c.visibility === "link") return true;
+  if (c.visibility === "link") return true;
+  // a private account's Public challenges only reach its followers
+  if (c.visibility === "public") return !db.users[c.creatorId]?.private || db.following.includes(c.creatorId);
   if (c.visibility === "group") return !!db.groups.find((g) => g.id === c.groupId)?.memberIds.includes(db.meId);
   if (c.visibility === "night") return !!db.nights?.find((n) => n.id === c.nightId)?.memberIds.includes(db.meId);
   return db.following.includes(c.creatorId);

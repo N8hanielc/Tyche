@@ -46,6 +46,7 @@ export interface User {
   trialUsed?: boolean;
   cardTheme?: string;
   verified?: boolean; // blue-check style badge, set by Tyche admins only
+  private?: boolean; // followers need approval; Public challenges only reach followers
   onboarded?: boolean; // false for new Google/Apple accounts until they confirm their profile
 }
 
@@ -162,7 +163,8 @@ export type NotificationKind =
   | "confirmed"
   | "won"
   | "lost"
-  | "follow";
+  | "follow"
+  | "follow_request";
 
 export interface Notification {
   id: ID;
@@ -292,6 +294,8 @@ export interface DB {
   users: Record<ID, User>;
   following: ID[]; // who "me" follows
   followerIds?: ID[]; // who follows "me" (newest first)
+  followRequests?: ID[]; // people asking to follow "me" (private accounts)
+  requested?: ID[]; // private accounts "me" has asked to follow
   challenges: Challenge[];
   messages: Message[];
   notifications: Notification[];

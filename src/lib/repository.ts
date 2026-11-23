@@ -20,7 +20,7 @@ export const localRepository: TycheRepository = {
       const raw = localStorage.getItem(KEY);
       if (raw) {
         const db = JSON.parse(raw) as DB;
-        if (db.version === 4) return db;
+        if (db.version === 5) return db;
       }
     } catch {
       /* storage unavailable or corrupt — fall through to seed */

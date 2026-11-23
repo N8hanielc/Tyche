@@ -36,6 +36,8 @@ create table if not exists public.profiles (
 alter table public.profiles add column if not exists onboarded boolean not null default true;
 -- Verified badge. Only you can set it (Supabase Table Editor or SQL); app users can't change it.
 alter table public.profiles add column if not exists verified boolean not null default false;
+-- Private account: new followers need approval, and challenges posted as Public only reach followers.
+alter table public.profiles add column if not exists private boolean not null default false;
 
 -- Admin-only account state (suspension, game restriction, review flag, verification audit,
 -- last activity). Kept out of `profiles` on purpose: every signed-in user can read all of
@@ -84,6 +86,14 @@ create table if not exists tyche_private.settings (
   value numeric not null,
   updated_at timestamptz not null default now(),
   updated_by uuid
+);
+
+create table if not exists public.follow_requests (
+  requester uuid not null references public.profiles (id) on delete cascade,
+  target uuid not null references public.profiles (id) on delete cascade,
+  created_at timestamptz not null default now(),
+  primary key (requester, target),
+  check (requester <> target)
 );
 
 create table if not exists public.follows (
@@ -339,7 +349,10 @@ $$;
 create or replace function tyche_private.can_see(c public.challenges, uid uuid) returns boolean language sql stable as $$
   select c.creator_id = uid
     or exists (select 1 from public.entries e where e.challenge_id = c.id and e.user_id = uid)
-    or c.visibility in ('public', 'link')
+    or c.visibility = 'link'
+    or (c.visibility = 'public' and (
+          not coalesce((select p.private from public.profiles p where p.id = c.creator_id), false)
+          or exists (select 1 from public.follows f where f.follower = uid and f.followee = c.creator_id)))
     or (c.visibility = 'group' and exists (select 1 from public.group_members m where m.group_id = c.group_id and m.user_id = uid))
     or (c.visibility = 'friends' and exists (select 1 from public.follows f where f.follower = uid and f.followee = c.creator_id))
     or (c.visibility = 'night' and exists (select 1 from public.night_members m where m.night_id = c.night_id and m.user_id = uid))
@@ -356,6 +369,15 @@ $$;
 create or replace function tyche_private.follow(uid uuid, target uuid) returns void language plpgsql as $$
 begin
   if target is null or target = uid then return; end if;
+  if exists (select 1 from public.follows where follower = uid and followee = target) then return; end if;
+  -- private account: ask first
+  if coalesce((select private from public.profiles where id = target), false) then
+    insert into public.follow_requests (requester, target) values (uid, target) on conflict do nothing;
+    if found and not exists (select 1 from public.notifications where to_user = target and actor_id = uid and kind = 'follow_request' and at > now() - interval '24 hours') then
+      perform tyche_private.notify(target, 'follow_request', 'requested to follow you', null, uid);
+    end if;
+    return;
+  end if;
   insert into public.follows (follower, followee) values (uid, target) on conflict do nothing;
   if not found then return; end if;
   -- one "started following you" per person per day, however often they toggle
@@ -751,10 +773,12 @@ begin
         'following', (select count(*) from follows f where f.follower = p.id),
         'baseWins', p.base_wins, 'baseLosses', p.base_losses, 'points', p.points, 'badges', to_jsonb(p.badges),
         'plus', p.plus, 'lastClaimAt', tyche_private.ms(p.last_claim_at), 'claimStreak', p.claim_streak,
-        'trialUsed', p.trial_used, 'cardTheme', p.card_theme, 'onboarded', p.onboarded, 'verified', p.verified)))
+        'trialUsed', p.trial_used, 'cardTheme', p.card_theme, 'onboarded', p.onboarded, 'verified', p.verified, 'private', p.private)))
       from profiles p), '{}'),
     'following', coalesce((select jsonb_agg(followee) from follows where follower = uid), '[]'),
     'followerIds', coalesce((select jsonb_agg(follower order by created_at desc) from follows where followee = uid), '[]'),
+    'followRequests', coalesce((select jsonb_agg(requester order by created_at desc) from follow_requests where target = uid), '[]'),
+    'requested', coalesce((select jsonb_agg(target) from follow_requests where requester = uid), '[]'),
     'challenges', coalesce((select jsonb_agg(jsonb_strip_nulls(jsonb_build_object(
         'id', c.id, 'creatorId', c.creator_id, 'createdAt', tyche_private.ms(c.created_at), 'category', c.category,
         'question', c.question, 'title', c.title, 'description', c.description, 'media', c.media, 'format', c.format,
@@ -1128,15 +1152,53 @@ begin
 end $$;
 
 create or replace function public.follow_toggle(target uuid) returns void language plpgsql security definer set search_path = public as $$
-declare uid uuid := tyche_private.me();
+declare uid uuid := tyche_private.me(); t uuid := follow_toggle.target;
 begin
-  if target = uid then return; end if;
-  if exists (select 1 from follows where follower = uid and followee = target) then
-    delete from follows where follower = uid and followee = target;
+  if t = uid then return; end if;
+  if exists (select 1 from follows f where f.follower = uid and f.followee = t) then
+    delete from follows f where f.follower = uid and f.followee = t;
+  elsif exists (select 1 from follow_requests r where r.requester = uid and r.target = t) then
+    -- cancel a pending request
+    delete from follow_requests r where r.requester = uid and r.target = t;
+    delete from notifications n where n.to_user = t and n.actor_id = uid and n.kind = 'follow_request';
   else
-    perform tyche_private.follow(uid, target);
+    perform tyche_private.follow(uid, t);
   end if;
 end $$;
+
+-- Approve or decline someone's request to follow you.
+create or replace function public.respond_follow_request(requester uuid, accept boolean) returns void
+language plpgsql security definer set search_path = public as $$
+declare uid uuid := tyche_private.me();
+begin
+  delete from follow_requests r where r.requester = respond_follow_request.requester and r.target = uid;
+  if not found then return; end if;
+  delete from notifications where to_user = uid and actor_id = respond_follow_request.requester and kind = 'follow_request';
+  if accept then
+    insert into follows (follower, followee) values (respond_follow_request.requester, uid) on conflict do nothing;
+    perform tyche_private.notify(respond_follow_request.requester, 'follow', 'accepted your follow request', null, uid);
+    perform tyche_private.notify(uid, 'follow', 'started following you', null, respond_follow_request.requester);
+  end if;
+end $$;
+
+-- Make your account private or public. Going public approves everyone who's waiting.
+create or replace function public.set_private(on_off boolean) returns void
+language plpgsql security definer set search_path = public as $$
+declare uid uuid := tyche_private.me(); r record;
+begin
+  update profiles set private = on_off where id = uid;
+  if not on_off then
+    for r in select requester from follow_requests where target = uid loop
+      perform public.respond_follow_request(r.requester, true);
+    end loop;
+  end if;
+end $$;
+
+-- Remove someone from your followers (they aren't notified).
+create or replace function public.remove_follower(follower_id uuid) returns void
+language sql security definer set search_path = public as $$
+  delete from follows where follower = follower_id and followee = tyche_private.me()
+$$;
 
 create or replace function public.read_notifications() returns void language sql security definer set search_path = public as $$
   update notifications set read = true where to_user = auth.uid() and not read
@@ -1391,6 +1453,7 @@ end $$;
 
 alter table public.profiles enable row level security;
 alter table public.follows enable row level security;
+alter table public.follow_requests enable row level security;
 alter table public.groups enable row level security;
 alter table public.group_members enable row level security;
 alter table public.challenges enable row level security;
@@ -1409,6 +1472,8 @@ drop policy if exists "read profiles" on public.profiles;
 create policy "read profiles" on public.profiles for select to authenticated using (true);
 drop policy if exists "read own follows" on public.follows;
 create policy "read own follows" on public.follows for select to authenticated using (follower = auth.uid() or followee = auth.uid());
+drop policy if exists "read own follow requests" on public.follow_requests;
+create policy "read own follow requests" on public.follow_requests for select to authenticated using (requester = auth.uid() or target = auth.uid());
 drop policy if exists "read visible challenges" on public.challenges;
 create policy "read visible challenges" on public.challenges for select to authenticated using (public.can_see_challenge(id));
 drop policy if exists "read visible entries" on public.entries;
@@ -1877,6 +1942,7 @@ begin
   begin alter publication supabase_realtime add table public.notifications; exception when others then null; end;
   begin alter publication supabase_realtime add table public.nights; exception when others then null; end;
   begin alter publication supabase_realtime add table public.follows; exception when others then null; end;
+  begin alter publication supabase_realtime add table public.follow_requests; exception when others then null; end;
 end $$;
 
 -- Optional (Phase 2): run transitions every minute even when nobody has the app open.

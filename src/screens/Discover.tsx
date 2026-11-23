@@ -217,9 +217,15 @@ export function DiscoverScreen() {
                     </button>
                     <div className="mt-2 w-full truncate text-[14px] font-semibold">{u.name}</div>
                     <div className="mb-3 w-full truncate text-[12px] text-muted">{u.followers.toLocaleString()} followers</div>
-                    <button onClick={() => actions.follow(u.id)} className="h-8 w-full rounded-xl bg-white text-[13px] font-semibold text-ink active:scale-95">
-                      Follow
-                    </button>
+                    {(db.requested ?? []).includes(u.id) ? (
+                      <button onClick={() => actions.follow(u.id)} className="h-8 w-full rounded-xl bg-surface text-[13px] font-semibold text-white active:scale-95">
+                        Requested
+                      </button>
+                    ) : (
+                      <button onClick={() => actions.follow(u.id)} className="h-8 w-full rounded-xl bg-white text-[13px] font-semibold text-ink active:scale-95">
+                        Follow
+                      </button>
+                    )}
                   </div>
                 ))}
               </div>

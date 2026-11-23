@@ -166,9 +166,33 @@ export function makeRemoteActions(mutate: (fn: Mutator) => void, reload: () => P
     },
     follow(userId: ID) {
       mutate((db) => {
-        db.following = db.following.includes(userId) ? db.following.filter((x) => x !== userId) : [...db.following, userId];
+        const on = db.following.includes(userId);
+        const asked = (db.requested ?? []).includes(userId);
+        if (!on && asked) db.requested = (db.requested ?? []).filter((x) => x !== userId);
+        else if (!on && db.users[userId]?.private) db.requested = [...(db.requested ?? []), userId];
+        else db.following = on ? db.following.filter((x) => x !== userId) : [...db.following, userId];
       });
       void call("follow_toggle", { target: userId });
+    },
+    respondFollow(requester: ID, accept: boolean) {
+      mutate((db) => {
+        db.followRequests = (db.followRequests ?? []).filter((x) => x !== requester);
+        db.notifications = db.notifications.filter((n) => !(n.kind === "follow_request" && n.actorId === requester));
+        if (accept) db.followerIds = [requester, ...(db.followerIds ?? []).filter((x) => x !== requester)];
+      });
+      void call("respond_follow_request", { requester, accept });
+    },
+    setPrivate(on: boolean) {
+      mutate((db) => {
+        db.users[db.meId].private = on;
+      });
+      void call("set_private", { on_off: on });
+    },
+    removeFollower(id: ID) {
+      mutate((db) => {
+        db.followerIds = (db.followerIds ?? []).filter((x) => x !== id);
+      });
+      void call("remove_follower", { follower_id: id });
     },
     becomeUser(_p: { id: ID; name: string; username: string; avatar?: string; bio?: string; follows?: ID[] }) {
       /* not used with Supabase: the profile row is created at sign-up */

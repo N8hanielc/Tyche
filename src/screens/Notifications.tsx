@@ -9,7 +9,7 @@ import { ago, cx, myNotifications } from "@/lib/utils";
 import { Avatar, Empty, TopBar, Verified } from "@/components/ui";
 
 const ICON: Record<NotificationKind, string> = {
-  joined: "🟣", invite: "📨", reply: "💬", created: "✨", closing: "⏳", started: "▶️", confirmed: "✅", won: "🏆", lost: "💀", follow: "👋",
+  joined: "🟣", invite: "📨", reply: "💬", created: "✨", closing: "⏳", started: "▶️", confirmed: "✅", won: "🏆", lost: "💀", follow: "👋", follow_request: "🔒",
 };
 
 export function NotificationsScreen() {
@@ -35,14 +35,16 @@ export function NotificationsScreen() {
           const actor = n.actorId ? db.users[n.actorId] : undefined;
           const isNew = unread.has(n.id) || !n.read;
           return (
-            <button
+            <div
               key={n.id}
+              role="button"
+              tabIndex={0}
               onClick={() => {
                 if (n.challengeId && db.challenges.some((c) => c.id === n.challengeId)) nav.push({ kind: "room", id: n.challengeId });
                 else if (n.actorId && db.users[n.actorId]) nav.push({ kind: "user", id: n.actorId });
                 else if (n.challengeId) nav.toast("That challenge isn’t available anymore");
               }}
-              className={cx("flex w-full items-start gap-3 px-4 py-3 text-left transition hover:bg-card", isNew && "bg-brand/[0.06]")}
+              className={cx("flex w-full cursor-pointer items-start gap-3 px-4 py-3 text-left transition hover:bg-card", isNew && "bg-brand/[0.06]")}
             >
               <div className="relative">
                 {actor ? <Avatar user={actor} size={44} /> : <div className="grid h-11 w-11 place-items-center rounded-full bg-surface text-xl">{ICON[n.kind]}</div>}
@@ -53,8 +55,15 @@ export function NotificationsScreen() {
                 <span className="text-white/80">{n.text}</span>
                 <div className="mt-0.5 text-[12px] text-dim">{ago(n.at)}</div>
               </div>
-              {isNew && <span className="mt-2 h-2 w-2 shrink-0 rounded-full bg-brand shadow-[0_0_8px_#8247ff]" />}
-            </button>
+              {n.kind === "follow_request" && actor && (db.followRequests ?? []).includes(actor.id) ? (
+                <div className="flex shrink-0 gap-1.5 self-center" onClick={(e) => e.stopPropagation()}>
+                  <button onClick={() => actions.respondFollow(actor.id, true)} className="h-8 rounded-xl bg-brand px-3 text-[13px] font-semibold text-white active:scale-95">Confirm</button>
+                  <button onClick={() => actions.respondFollow(actor.id, false)} className="h-8 rounded-xl bg-surface px-3 text-[13px] font-semibold text-white active:scale-95">Delete</button>
+                </div>
+              ) : (
+                isNew && <span className="mt-2 h-2 w-2 shrink-0 rounded-full bg-brand shadow-[0_0_8px_#8247ff]" />
+              )}
+            </div>
           );
         })}
       </div>

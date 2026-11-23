@@ -364,7 +364,7 @@ export function CreateScreen({ prefill }: { prefill?: Partial<Draft> }) {
                   ["friends", <Users size={19} key="f" />, "Friends only", "People you follow back"],
                   ["link", <Link2 size={19} key="l" />, "Invite by link", "Anyone with the link"],
                   ["group", <Lock size={19} key="g" />, "Private group", "Only members of one group"],
-                  ["public", <Globe size={19} key="p" />, "Public challenge", "Shows up in Discover"],
+                  ["public", <Globe size={19} key="p" />, "Public challenge", db.users[db.meId]?.private ? "Your account is private, so only your followers see it" : "Shows up in Discover"],
                 ] as [Visibility, React.ReactNode, string, string][]
               ).map(([v, icon, label, sub]) => (
                 <button key={v} onClick={() => set("visibility", v)} className={cx("flex w-full items-center gap-3 rounded-[20px] p-3.5 text-left transition", d.visibility === v ? "bg-brand/15 glow-soft" : "bg-card hairline")}>

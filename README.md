@@ -150,6 +150,16 @@ Controlled in **/admin → Access** (super admins):
 - **Invite requests.** Name, email and an optional note from the opening screen. Email them a password, then mark them Invited (or Dismiss).
 - The database enforces it too: while invite-only is on, email sign-ups without a valid password are rejected, and Google/Apple sign-ups can't finish onboarding without one. Wrong guesses are rate-limited per network.
 
+## Private accounts
+
+Profile → Settings → **Private account**.
+
+- New followers have to be approved. Following a private account sends a request; the owner gets a notification with **Confirm / Delete**, and pending requests are also under Followers → **Requests**.
+- Non-followers see the name, photo, bio and counts, but not the record, badges or challenges ("This account is private").
+- A private account's **Public** challenges only reach its followers (Friends, Group, Game Night and link challenges work as before). The database enforces this, not just the app.
+- Followers tab has a × to remove a follower quietly.
+- Switching back to public approves everyone who was waiting.
+
 ## Supabase (live mode)
 
 The app connects to Supabase automatically (project URL + publishable key in `src/lib/supabase.ts`; override with `NEXT_PUBLIC_SUPABASE_URL` / `NEXT_PUBLIC_SUPABASE_ANON_KEY`, or set `NEXT_PUBLIC_TYCHE_LOCAL=1` for the offline demo). The single-file preview always runs the offline demo.

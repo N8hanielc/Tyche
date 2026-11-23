@@ -16,7 +16,7 @@ export type Screen =
   | { kind: "plus"; reason?: string }
   | { kind: "night"; id: ID }
   | { kind: "nightNew" }
-  | { kind: "follows"; tab: "followers" | "following" };
+  | { kind: "follows"; tab: "followers" | "following" | "requests" };
 
 export type Sheet =
   | { kind: "join"; challengeId: ID; optionId?: ID }

@@ -40,7 +40,7 @@ export function seed(): DB {
   crowdNames.forEach(([u, n, img], i) => users.push(user(`c${i + 1}`, u, n, img, (i * 37) % 360, { followers: 40 + i * 13, following: 80 })));
 
   const db: DB = {
-    version: 4,
+    version: 5,
     meId: ME,
     users: Object.fromEntries(users.map((u) => [u.id, u])),
     following: ["u_marcus", "u_jordan", "u_mya", "u_chris", "u_dani", "u_kev", "u_hoops", "u_sol"],
@@ -265,6 +265,8 @@ export function seed(): DB {
   db.messages = msgs;
 
   // who follows the demo account (counts match the lists so the screens add up)
+  // a private account in the demo (you don't follow Tariq, so his profile is locked)
+  db.users.u_tariq.private = true;
   // verified accounts in the demo
   ["u_hoops", "u_sol", "u_tess"].forEach((id) => db.users[id] && (db.users[id].verified = true));
   db.followerIds = ["u_mya", "u_marcus", "u_jordan", "u_chris", "u_dani", "u_kev", "u_tess", "u_tariq"];

@@ -610,13 +610,54 @@ function makeActions(mutate: (fn: Mutator) => void, later: (ms: number, fn: Muta
       return err;
     },
 
+    /** Follow / unfollow; for a private account this sends (or cancels) a follow request. */
     follow(userId: ID) {
       mutate((db) => {
         const on = db.following.includes(userId);
+        const asked = (db.requested ?? []).includes(userId);
+        if (!on && asked) {
+          db.requested = (db.requested ?? []).filter((x) => x !== userId);
+          return;
+        }
+        if (!on && db.users[userId]?.private) {
+          db.requested = [...(db.requested ?? []), userId];
+          return;
+        }
         db.following = on ? db.following.filter((x) => x !== userId) : [...db.following, userId];
         const u = db.users[userId];
         if (u) u.followers += on ? -1 : 1;
         db.users[db.meId].following += on ? -1 : 1;
+      });
+    },
+
+    respondFollow(requester: ID, accept: boolean) {
+      mutate((db) => {
+        db.followRequests = (db.followRequests ?? []).filter((x) => x !== requester);
+        db.notifications = db.notifications.filter((n) => !(n.kind === "follow_request" && n.actorId === requester && (n.to ?? db.meId) === db.meId));
+        if (accept && !(db.followerIds ?? []).includes(requester)) {
+          db.followerIds = [requester, ...(db.followerIds ?? [])];
+          db.users[db.meId].followers += 1;
+        }
+      });
+    },
+
+    setPrivate(on: boolean) {
+      mutate((db) => {
+        db.users[db.meId].private = on;
+        if (!on)
+          for (const r of db.followRequests ?? []) {
+            db.followerIds = [r, ...(db.followerIds ?? [])];
+            db.users[db.meId].followers += 1;
+          }
+        if (!on) db.followRequests = [];
+      });
+    },
+
+    removeFollower(id: ID) {
+      mutate((db) => {
+        if (!(db.followerIds ?? []).includes(id)) return;
+        db.followerIds = (db.followerIds ?? []).filter((x) => x !== id);
+        db.users[db.meId].followers = Math.max(0, db.users[db.meId].followers - 1);
       });
     },
 
@@ -941,6 +982,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       .on("postgres_changes", { event: "*", schema: "public", table: "entries" }, soon)
       .on("postgres_changes", { event: "*", schema: "public", table: "nights" }, soon)
       .on("postgres_changes", { event: "*", schema: "public", table: "follows", filter: `followee=eq.${userId}` }, soon)
+      .on("postgres_changes", { event: "*", schema: "public", table: "follow_requests", filter: `target=eq.${userId}` }, soon)
+      .on("postgres_changes", { event: "*", schema: "public", table: "follows", filter: `follower=eq.${userId}` }, soon)
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "notifications", filter: `to_user=eq.${userId}` }, soon)
       .subscribe();
     // fallback poll; also advances server-side timers (tick runs inside get_state)

@@ -1,26 +1,29 @@
 "use client";
 
 import { useState } from "react";
-import { Search } from "lucide-react";
+import { Search, X } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { useNav } from "@/lib/nav";
 import { cx } from "@/lib/utils";
 import type { User } from "@/lib/types";
 import { Avatar, Segmented, TopBar, Verified } from "@/components/ui";
 
-type Tab = "followers" | "following";
+type Tab = "followers" | "following" | "requests";
 
 /** Your followers and the people you follow. */
-export function FollowsScreen({ tab: initial }: { tab: Tab }) {
+export function FollowsScreen({ tab: initial }: { tab: "followers" | "following" | "requests" }) {
   const { db, actions } = useStore();
   const nav = useNav();
   const [tab, setTab] = useState<Tab>(initial);
   const [q, setQ] = useState("");
+  const [confirmRemove, setConfirmRemove] = useState<string | null>(null);
   const me = db.users[db.meId];
 
   const followers = (db.followerIds ?? []).map((id) => db.users[id]).filter(Boolean) as User[];
   const following = db.following.map((id) => db.users[id]).filter(Boolean) as User[];
-  const list = tab === "followers" ? followers : following;
+  const requests = (db.followRequests ?? []).map((id) => db.users[id]).filter(Boolean) as User[];
+  const showRequests = !!me.private || requests.length > 0;
+  const list = tab === "followers" ? followers : tab === "following" ? following : requests;
   const term = q.trim().toLowerCase().replace(/^@/, "");
   const shown = term ? list.filter((u) => u.name.toLowerCase().includes(term) || u.username.includes(term)) : list;
 
@@ -34,6 +37,7 @@ export function FollowsScreen({ tab: initial }: { tab: Tab }) {
           options={[
             { id: "followers", label: `${followers.length.toLocaleString()} ${followers.length === 1 ? "Follower" : "Followers"}` },
             { id: "following", label: `${following.length.toLocaleString()} Following` },
+            ...(showRequests ? [{ id: "requests" as const, label: requests.length ? `Requests ${requests.length}` : "Requests" }] : []),
           ]}
         />
         {list.length > 6 && (
@@ -47,10 +51,14 @@ export function FollowsScreen({ tab: initial }: { tab: Tab }) {
       <div className="px-4 pt-2">
         {list.length === 0 && (
           <div className="mt-10 text-center">
-            <div className="mb-2 text-[34px]">{tab === "followers" ? "👀" : "🔎"}</div>
-            <div className="font-display text-[18px] font-bold">{tab === "followers" ? "No followers yet" : "You’re not following anyone yet"}</div>
+            <div className="mb-2 text-[34px]">{tab === "followers" ? "👀" : tab === "requests" ? "🔒" : "🔎"}</div>
+            <div className="font-display text-[18px] font-bold">{tab === "followers" ? "No followers yet" : tab === "requests" ? "No follow requests" : "You’re not following anyone yet"}</div>
             <p className="mx-auto mt-1 max-w-[260px] text-[14px] text-muted">
-              {tab === "followers" ? "Share your profile or send a challenge to the group chat to get people on Tyche." : "Follow friends to see their challenges in your feed."}
+              {tab === "followers"
+                ? "Share your profile or send a challenge to the group chat to get people on Tyche."
+                : tab === "requests"
+                  ? "When someone asks to follow your private account, they’ll show up here."
+                  : "Follow friends to see their challenges in your feed."}
             </p>
             {tab === "following" && (
               <button onClick={() => nav.setTab("discover")} className="mt-4 rounded-xl bg-brand px-4 py-2.5 text-[14px] font-semibold text-white">
@@ -64,6 +72,7 @@ export function FollowsScreen({ tab: initial }: { tab: Tab }) {
           {shown.map((u) => {
             const iFollow = db.following.includes(u.id);
             const followsMe = (db.followerIds ?? []).includes(u.id);
+            const asked = (db.requested ?? []).includes(u.id);
             return (
               <div key={u.id} className="flex items-center gap-3 rounded-2xl px-1 py-2">
                 <button onClick={() => nav.push({ kind: "user", id: u.id })} className="flex min-w-0 flex-1 items-center gap-3 text-left">
@@ -76,12 +85,36 @@ export function FollowsScreen({ tab: initial }: { tab: Tab }) {
                     </div>
                   </div>
                 </button>
-                <button
-                  onClick={() => actions.follow(u.id)}
-                  className={cx("h-9 min-w-[112px] shrink-0 whitespace-nowrap rounded-xl px-3 text-[13px] font-semibold transition active:scale-95", iFollow ? "bg-surface text-white" : "bg-white text-ink")}
-                >
-                  {iFollow ? "Following" : followsMe ? "Follow back" : "Follow"}
-                </button>
+                {tab === "requests" ? (
+                  <div className="flex shrink-0 gap-1.5">
+                    <button onClick={() => actions.respondFollow(u.id, true)} className="h-9 rounded-xl bg-brand px-3.5 text-[13px] font-semibold text-white active:scale-95">Confirm</button>
+                    <button onClick={() => actions.respondFollow(u.id, false)} className="h-9 rounded-xl bg-surface px-3.5 text-[13px] font-semibold text-white active:scale-95">Delete</button>
+                  </div>
+                ) : (
+                  <>
+                    <button
+                      onClick={() => actions.follow(u.id)}
+                      className={cx("h-9 min-w-[112px] shrink-0 whitespace-nowrap rounded-xl px-3 text-[13px] font-semibold transition active:scale-95", iFollow || asked ? "bg-surface text-white" : "bg-white text-ink")}
+                    >
+                      {iFollow ? "Following" : asked ? "Requested" : followsMe ? "Follow back" : "Follow"}
+                    </button>
+                    {tab === "followers" && (
+                      <button
+                        onClick={() => {
+                          if (confirmRemove === u.id) {
+                            actions.removeFollower(u.id);
+                            setConfirmRemove(null);
+                            nav.toast(`Removed ${u.name.split(" ")[0]} from your followers`);
+                          } else setConfirmRemove(u.id);
+                        }}
+                        className={cx("grid h-9 shrink-0 place-items-center rounded-xl text-[12px] font-semibold transition", confirmRemove === u.id ? "bg-loss/15 px-3 text-loss" : "w-8 text-dim hover:text-white")}
+                        aria-label={`Remove ${u.name} from your followers`}
+                      >
+                        {confirmRemove === u.id ? "Remove" : <X size={16} />}
+                      </button>
+                    )}
+                  </>
+                )}
               </div>
             );
           })}

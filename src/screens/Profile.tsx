@@ -40,6 +40,9 @@ export function ProfileScreen({ userId }: { userId?: string }) {
   const auth = useAuth();
   const rec = userRecord(db, id);
   const following = db.following.includes(id);
+  const requested = (db.requested ?? []).includes(id);
+  // a private account's stats and challenges are only for its followers
+  const locked = !isMe && !!u?.private && !following;
 
   const created = db.challenges.filter((c) => c.creatorId === id);
   const joined = db.challenges.filter((c) => c.entries.some((e) => e.userId === id));
@@ -110,6 +113,26 @@ export function ProfileScreen({ userId }: { userId?: string }) {
           <span className="flex-1">{isPlus(u) ? "Manage Tyche+" : "Upgrade to Tyche+"}</span>
           {isPlus(u) ? <PlusBadge /> : <ChevronRight size={17} className="text-dim" />}
         </button>
+        <button
+          onClick={() => {
+            actions.setPrivate(!u.private);
+            nav.toast(u.private ? "Your account is public" : "Your account is private");
+          }}
+          className="mb-1 flex w-full items-center gap-3 rounded-2xl px-2 py-3 text-left text-[15px] hover:bg-surface"
+          role="switch"
+          aria-checked={!!u.private}
+        >
+          <Lock size={18} className="text-muted" />
+          <span className="flex-1">
+            Private account
+            <span className="block text-[12px] leading-snug text-dim">
+              {u.private ? "You approve new followers. Your Public challenges only reach followers." : "Anyone can follow you and see your Public challenges."}
+            </span>
+          </span>
+          <span className={cx("relative h-7 w-12 shrink-0 rounded-full transition", u.private ? "bg-brand" : "bg-white/15")}>
+            <span className={cx("absolute top-1 h-5 w-5 rounded-full bg-white transition-all", u.private ? "left-6" : "left-1")} />
+          </span>
+        </button>
         {REMOTE ? null : confirmReset ? (
           <div className="mb-2 rounded-2xl bg-card p-3 text-[13px] hairline">
             <p className="mb-3 text-muted">Reset all challenges, chats and points to the original sample data? Accounts stay signed up.</p>
@@ -172,10 +195,15 @@ export function ProfileScreen({ userId }: { userId?: string }) {
           </div>
           <div className="relative mt-4">
             <div className="flex items-center gap-2 font-display text-[22px] font-extrabold tracking-tight">
-              {u.name} <Verified user={u} size={20} /> {isPlus(u) && <PlusBadge size="md" />}
+              {u.name} <Verified user={u} size={20} /> {u.private && <Lock size={15} className="text-muted" aria-label="Private account" />} {isPlus(u) && <PlusBadge size="md" />}
             </div>
             <div className="text-[14px] text-lav">@{u.username}</div>
             {u.bio && <p className="mt-2 text-[14px] leading-relaxed text-white/80">{u.bio}</p>}
+            {isMe && (db.followRequests ?? []).length > 0 && (
+              <button onClick={() => nav.push({ kind: "follows", tab: "requests" })} className="mt-3 inline-flex items-center gap-2 rounded-full bg-brand/15 px-3 py-1.5 text-[13px] font-semibold text-lav ring-1 ring-brand/30">
+                <Lock size={13} /> {(db.followRequests ?? []).length} follow request{(db.followRequests ?? []).length === 1 ? "" : "s"}
+              </button>
+            )}
           </div>
           <div className="relative mt-4 flex gap-2">
             {isMe ? (
@@ -189,8 +217,8 @@ export function ProfileScreen({ userId }: { userId?: string }) {
               </>
             ) : (
               <>
-                <Button variant={following ? "soft" : "primary"} className="flex-1" onClick={() => actions.follow(id)}>
-                  {following ? "Following" : "Follow"}
+                <Button variant={following || requested ? "soft" : "primary"} className="flex-1" onClick={() => actions.follow(id)}>
+                  {following ? "Following" : requested ? "Requested" : (db.followerIds ?? []).includes(id) ? "Follow back" : "Follow"}
                 </Button>
                 <Button variant="soft" className="flex-1" onClick={() => nav.push({ kind: "create", prefill: { invited: [id], visibility: "friends" } })}>
                   Challenge {u.name.split(" ")[0]}
@@ -202,6 +230,18 @@ export function ProfileScreen({ userId }: { userId?: string }) {
 
         {!isMe && <HeadToHead otherId={id} />}
 
+        {locked ? (
+          <div className="mt-2 flex flex-col items-center rounded-[24px] bg-card px-6 py-10 text-center hairline">
+            <div className="mb-3 grid h-14 w-14 place-items-center rounded-full bg-surface ring-1 ring-white/10">
+              <Lock size={22} className="text-white/80" />
+            </div>
+            <div className="font-display text-[18px] font-bold">This account is private</div>
+            <p className="mt-1 max-w-[260px] text-[14px] text-muted">
+              {requested ? `You asked to follow ${u.name.split(" ")[0]}. You’ll see their challenges once they approve.` : `Follow ${u.name.split(" ")[0]} to see their record and challenges.`}
+            </p>
+          </div>
+        ) : (
+        <>
         <div className="mb-4 grid grid-cols-3 gap-2">
           <Stat label="Wins" value={rec.wins} tone="text-win" />
           <Stat label="Losses" value={rec.losses} tone="text-loss" />
@@ -287,6 +327,8 @@ export function ProfileScreen({ userId }: { userId?: string }) {
               );
             })}
           </div>
+        )}
+        </>
         )}
       </div>
     </div>
