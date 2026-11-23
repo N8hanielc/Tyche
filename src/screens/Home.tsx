@@ -42,7 +42,7 @@ export function HomeScreen() {
 
   return (
     <div>
-      <header className="sticky top-0 z-30 bg-ink/80 px-4 pb-3 pt-[max(env(safe-area-inset-top),14px)] backdrop-blur-xl">
+      <header className="sticky top-0 z-30 glass-bar px-4 pb-3 pt-[max(env(safe-area-inset-top),14px)]">
         <div className="mb-3 flex items-center justify-between">
           <Logo size={26} />
           <div className="flex items-center gap-2">

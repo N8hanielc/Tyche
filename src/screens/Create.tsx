@@ -134,7 +134,7 @@ export function CreateScreen({ prefill }: { prefill?: Partial<Draft> }) {
 
   return (
     <div className="flex min-h-dvh flex-col">
-      <header className="sticky top-0 z-20 bg-ink/85 px-4 pb-3 pt-[max(env(safe-area-inset-top),12px)] backdrop-blur-xl">
+      <header className="sticky top-0 z-20 glass-bar px-4 pb-3 pt-[max(env(safe-area-inset-top),12px)]">
         <div className="mb-3 flex items-center justify-between">
           <button onClick={nav.pop} className="grid h-10 w-10 place-items-center rounded-full bg-card hairline" aria-label="Close">
             <X size={18} />

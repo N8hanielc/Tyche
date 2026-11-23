@@ -27,34 +27,37 @@ export function BottomNav() {
     return (
       <button
         onClick={() => nav.setTab(t)}
-        className={cx("relative flex flex-1 flex-col items-center gap-1 pt-2 text-[10px] font-semibold transition-colors", active ? "text-white" : "text-dim hover:text-muted")}
+        aria-current={active ? "page" : undefined}
+        className={cx(
+          "relative flex h-[54px] flex-1 flex-col items-center justify-center gap-0.5 rounded-full text-[10px] font-semibold transition-[background-color,color,transform] duration-200 ease-out active:scale-95",
+          active ? "bg-white/[0.14] text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.25)]" : "text-white/70 hover:text-white",
+        )}
       >
-        <span className={cx("transition-transform duration-200", active && "scale-110")}>{icon}</span>
+        <span>{icon}</span>
         {label}
-        {active && <span className="absolute -top-px h-[2px] w-6 rounded-full bg-brand shadow-[0_0_12px_#8247ff]" />}
         {!!badge && <span className="absolute left-1/2 top-1 ml-1.5 min-w-4 rounded-full bg-brand px-1 text-[9px] font-bold leading-4 text-white">{badge > 99 ? "99+" : badge}</span>}
       </button>
     );
   };
   return (
-    <nav className="fixed inset-x-0 bottom-0 z-40 mx-auto max-w-[440px] border-t border-white/[0.06] bg-ink/85 pb-[max(env(safe-area-inset-bottom),8px)] backdrop-blur-xl">
-      <div className="flex items-end">
-        {item("home", "Home", <House size={23} strokeWidth={nav.tab === "home" ? 2.4 : 2} />)}
-        {item("discover", "Discover", <Compass size={23} strokeWidth={nav.tab === "discover" ? 2.4 : 2} />)}
+    <nav className="pointer-events-none fixed inset-x-0 bottom-0 z-40 mx-auto max-w-[440px] px-3 pb-[max(env(safe-area-inset-bottom),12px)]">
+      <div className="glass pointer-events-auto flex h-[66px] items-center rounded-full px-1.5">
+        {item("home", "Feed", <House size={22} strokeWidth={nav.tab === "home" ? 2.4 : 2} />)}
+        {item("discover", "Discover", <Compass size={22} strokeWidth={nav.tab === "discover" ? 2.4 : 2} />)}
         <div className="flex flex-1 justify-center">
           <button
             onClick={() => nav.push({ kind: "create" })}
-            className="-mt-5 grid h-[58px] w-[58px] place-items-center rounded-full bg-gradient-to-b from-[#9461ff] to-brand text-white shadow-[0_10px_30px_-6px_rgba(130,71,255,0.8),inset_0_1px_0_rgba(255,255,255,0.3)] ring-4 ring-ink transition active:scale-90"
+            className="grid h-[50px] w-[50px] place-items-center rounded-full bg-brand text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.4),0_8px_20px_-6px_rgba(0,0,0,0.6)] transition active:scale-90"
             aria-label="Create challenge"
           >
-            <Plus size={28} strokeWidth={2.6} />
+            <Plus size={26} strokeWidth={2.6} />
           </button>
         </div>
-        {item("rooms", "Rooms", <MessagesSquare size={23} strokeWidth={nav.tab === "rooms" ? 2.4 : 2} />, rooms)}
+        {item("rooms", "Rooms", <MessagesSquare size={22} strokeWidth={nav.tab === "rooms" ? 2.4 : 2} />, rooms)}
         {item(
           "profile",
-          "Profile",
-          nav.tab === "profile" ? <Avatar user={me} size={24} ring /> : <UserIcon size={23} />,
+          "You",
+          nav.tab === "profile" ? <Avatar user={me} size={22} ring /> : <UserIcon size={22} />,
         )}
       </div>
     </nav>

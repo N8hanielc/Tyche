@@ -59,7 +59,7 @@ function Overlay({ s, index }: { s: Screen; index: number }) {
   }
   return (
     <div className="fixed inset-0 flex justify-center" style={{ zIndex: 45 + index }}>
-      <div className={`relative h-dvh w-full max-w-[440px] overflow-y-auto bg-ink no-scrollbar ${s.kind === "create" ? "animate-sheet" : "animate-slide"}`}>{node}</div>
+      <div className={`relative h-dvh w-full max-w-[440px] overflow-y-auto tyche-aurora no-scrollbar ${s.kind === "create" ? "animate-sheet" : "animate-slide"}`}>{node}</div>
     </div>
   );
 }
@@ -67,8 +67,9 @@ function Overlay({ s, index }: { s: Screen; index: number }) {
 function Shell() {
   const nav = useNav();
   return (
-    <div className="min-h-dvh bg-ink md:bg-[radial-gradient(60%_50%_at_50%_0%,rgba(130,71,255,0.12),transparent)]">
-      <main className="relative mx-auto min-h-dvh max-w-[440px] bg-ink pb-28 md:border-x md:border-white/[0.05]">
+    <div className="min-h-dvh bg-ink">
+      <div aria-hidden className="tyche-aurora pointer-events-none fixed inset-0 mx-auto max-w-[440px]" />
+      <main className="relative mx-auto min-h-dvh max-w-[440px] pb-28 md:border-x md:border-white/[0.05]">
         {nav.tab === "home" && <HomeScreen />}
         {nav.tab === "discover" && <DiscoverScreen />}
         {nav.tab === "rooms" && <RoomsScreen />}

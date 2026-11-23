@@ -72,7 +72,7 @@ export function RoomsScreen() {
 
   return (
     <div>
-      <header className="sticky top-0 z-30 bg-ink/80 px-4 pb-3 pt-[max(env(safe-area-inset-top),14px)] backdrop-blur-xl">
+      <header className="sticky top-0 z-30 glass-bar px-4 pb-3 pt-[max(env(safe-area-inset-top),14px)]">
         <div className="mb-3 flex items-center justify-between">
           <h1 className="font-display text-[30px] font-extrabold tracking-[-0.03em]">Rooms</h1>
           <button onClick={startGroup} className="flex h-9 items-center gap-1.5 rounded-full bg-card px-3.5 text-[13px] font-semibold hairline active:scale-95">

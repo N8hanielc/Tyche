@@ -27,7 +27,7 @@ export function FollowsScreen({ tab: initial }: { tab: Tab }) {
   return (
     <div className="pb-10">
       <TopBar onBack={nav.pop} title={`@${me.username}`} />
-      <div className="sticky top-[60px] z-20 space-y-2 bg-ink/85 px-4 pb-2 backdrop-blur-xl">
+      <div className="sticky top-[60px] z-20 space-y-2 glass-bar px-4 pb-2">
         <Segmented
           value={tab}
           onChange={setTab}

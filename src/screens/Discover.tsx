@@ -87,7 +87,7 @@ export function DiscoverScreen() {
 
   return (
     <div>
-      <header className="sticky top-0 z-30 bg-ink/80 px-4 pb-3 pt-[max(env(safe-area-inset-top),14px)] backdrop-blur-xl">
+      <header className="sticky top-0 z-30 glass-bar px-4 pb-3 pt-[max(env(safe-area-inset-top),14px)]">
         <h1 className="mb-3 font-display text-[30px] font-extrabold tracking-[-0.03em]">Discover</h1>
         <label className="flex h-12 items-center gap-2.5 rounded-2xl bg-card px-4 hairline focus-within:shadow-[0_0_0_1.5px_#8247ff]">
           <Search size={18} className="text-dim" />

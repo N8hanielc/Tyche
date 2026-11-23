@@ -258,7 +258,7 @@ export function NightScreen({ id }: { id: string }) {
           </span>
         }
       />
-      <div className="sticky top-[60px] z-20 bg-ink/85 px-4 pb-2 backdrop-blur-xl">
+      <div className="sticky top-[60px] z-20 glass-bar px-4 pb-2">
         <Segmented
           value={tab}
           onChange={setTab}

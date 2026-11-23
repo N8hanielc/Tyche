@@ -28,7 +28,7 @@ export function ChallengeCard({ c, index = 0 }: { c: Challenge; index?: number }
   return (
     <article
       onClick={open}
-      className="animate-rise cursor-pointer rounded-[26px] bg-card p-4 hairline transition-colors hover:bg-[#171a24]"
+      className="animate-rise cursor-pointer rounded-[26px] bg-card p-4 hairline transition-colors hover:bg-white/[0.09]"
       style={{ animationDelay: `${Math.min(index, 6) * 45}ms` }}
     >
       <header className="mb-3 flex items-center gap-2.5">

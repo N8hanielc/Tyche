@@ -126,7 +126,7 @@ export function Segmented<T extends string>({ value, options, onChange, classNam
 
 export function TopBar({ title, onBack, right, sub }: { title?: React.ReactNode; onBack?: () => void; right?: React.ReactNode; sub?: React.ReactNode }) {
   return (
-    <header className="sticky top-0 z-30 flex items-center gap-2 bg-ink/80 px-3 pb-2 pt-[max(env(safe-area-inset-top),12px)] backdrop-blur-xl">
+    <header className="sticky top-0 z-30 flex items-center gap-2 glass-bar px-3 pb-2 pt-[max(env(safe-area-inset-top),12px)]">
       {onBack && (
         <button onClick={onBack} className="grid h-10 w-10 place-items-center rounded-full text-white hover:bg-card active:scale-90" aria-label="Back">
           <ChevronLeft size={24} />
@@ -146,9 +146,9 @@ export function BottomSheet({ open, onClose, children, title }: { open: boolean;
   return (
     <div className="fixed inset-0 z-[60] flex items-end justify-center">
       <div className="absolute inset-0 animate-fade bg-black/60 backdrop-blur-[2px]" onClick={onClose} />
-      <div className="relative max-h-[92dvh] w-full max-w-[440px] animate-sheet overflow-y-auto rounded-t-[28px] bg-card pb-[max(env(safe-area-inset-bottom),20px)] hairline no-scrollbar">
-        <div className="sticky top-0 z-10 bg-card/95 px-5 pb-2 pt-3 backdrop-blur">
-          <div className="mx-auto mb-3 h-1 w-10 rounded-full bg-white/15" />
+      <div className="relative max-h-[92dvh] w-full max-w-[440px] animate-sheet overflow-y-auto rounded-t-[32px] glass pb-[max(env(safe-area-inset-bottom),20px)] hairline no-scrollbar">
+        <div className="sticky top-0 z-10 bg-white/[0.03] px-5 pb-2 pt-3 backdrop-blur-xl">
+          <div className="mx-auto mb-3 h-[5px] w-10 rounded-full bg-white/35" />
           {title && (
             <div className="flex items-center justify-between">
               <div className="font-display text-lg font-bold">{title}</div>

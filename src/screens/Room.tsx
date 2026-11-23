@@ -747,7 +747,7 @@ function Composer({ challengeId }: { challengeId: string }) {
   };
 
   return (
-    <div className="sticky bottom-0 z-20 border-t border-white/[0.06] bg-ink/90 px-3 pb-[max(env(safe-area-inset-bottom),10px)] pt-2 backdrop-blur-xl">
+    <div className="sticky bottom-0 z-20 glass-bar px-3 pb-[max(env(safe-area-inset-bottom),10px)] pt-2">
       {reply && (
         <div className="mb-2 flex items-center gap-2 rounded-xl bg-card px-3 py-2 text-[12px]">
           <Reply size={14} className="text-lav" />
